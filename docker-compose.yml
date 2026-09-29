@@ -1,0 +1,24 @@
+services:
+  redis:
+    image: redis:8
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS= --requirepass your_password_here --appendonly yes
+    restart: unless-stopped
+  database:
+    image: postgres:17
+    ports: 
+      - 5432:5432
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: tenant_db
+
+volumes:
+  redis-data:
+  pg-data:
