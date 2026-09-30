@@ -1,15 +1,12 @@
 use sqlx::PgPool;
 
-use crate::{Error::ApiResult, dto::tenant::TenantResponse};
+use crate::{
+    Error::ApiResult,
+    dto::utils::{PaginatedList, Pagination},
+    model::tenant::Tenant,
+    service::database::tenant::list as list_db,
+};
 
-pub async fn list(db_conn: &PgPool) -> ApiResult<Vec<TenantResponse>> {
-    let res = sqlx::query_as!(
-        TenantResponse,
-        r#"
-        SELECT id,name,slug,created_at,updated_at FROM tenants;
-        "#
-    )
-    .fetch_all(db_conn)
-    .await?;
-    Ok(res)
+pub async fn list(pagination: &Pagination, db_conn: &PgPool) -> ApiResult<PaginatedList<Tenant>> {
+    list_db(db_conn, pagination).await
 }

@@ -1,10 +1,15 @@
+use std::env;
+
 use sqlx::{PgPool, postgres::PgPoolOptions};
-const DB_URL: &str = "postgress://postgres:root@localhost:5432/tenant_db";
-pub async fn get_db() -> Result<PgPool, sqlx::Error> {
-    PgPoolOptions::new()
+
+use crate::Error::ApiResult;
+pub async fn get_db() -> ApiResult<PgPool> {
+    let db_url = env::var("DB_URL")?;
+    let res = PgPoolOptions::new()
         .max_connections(10)
-        .connect(DB_URL)
-        .await
+        .connect(&db_url)
+        .await?;
+    Ok(res)
 }
 
 #[tokio::test]

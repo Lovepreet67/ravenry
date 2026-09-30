@@ -1,6 +1,13 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, QueryBuilder};
 
-use crate::{Error::ApiResult, dto::tenant::CreateTenantRequest, model::tenant::Tenant};
+use crate::{
+    Error::ApiResult,
+    dto::{
+        tenant::CreateTenantRequest,
+        utils::{PageInfo, PaginatedList, Pagination},
+    },
+    model::tenant::Tenant,
+};
 
 pub async fn insert_tenant(tenant: &CreateTenantRequest, db_conn: &PgPool) -> ApiResult<Tenant> {
     let tenant = sqlx::query_as!(
@@ -18,8 +25,30 @@ pub async fn insert_tenant(tenant: &CreateTenantRequest, db_conn: &PgPool) -> Ap
 
     Ok(tenant)
 }
-pub async fn list_tenant() {}
 
-pub async fn get_tenant_by_id() {}
+pub async fn list(db_conn: &PgPool, pagination: &Pagination) -> ApiResult<PaginatedList<Tenant>> {
+    // ---- total count, for page_info ----
+    let mut count_qb: QueryBuilder<_> = QueryBuilder::new("SELECT COUNT(*) FROM users");
+    let total_rows: i64 = count_qb.build_query_scalar().fetch_one(db_conn).await?;
 
-pub async fn updated_tenant() {}
+    let mut data_qb: QueryBuilder<_> =
+        QueryBuilder::new("SELECT id, name, slug, status, created_at, updated_at FROM tenants");
+    data_qb.push(" ORDER BY created_at DESC LIMIT ");
+    data_qb.push_bind(pagination.get_page_size());
+    data_qb.push(" OFFSET ");
+    data_qb.push_bind(pagination.get_page_size() * (pagination.get_page_no() - 1));
+
+    let rows = data_qb
+        .build_query_as::<Tenant>()
+        .fetch_all(db_conn)
+        .await?;
+
+    Ok(PaginatedList {
+        list: rows,
+        page_info: PageInfo {
+            page_size: pagination.get_page_size(),
+            page_no: pagination.get_page_no(),
+            total_rows: total_rows,
+        },
+    })
+}

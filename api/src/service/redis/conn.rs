@@ -1,11 +1,18 @@
-use redis::{AsyncCommands, RedisError, aio::ConnectionManager};
+use std::env;
 
-pub async fn get_redis() -> Result<ConnectionManager, RedisError> {
-    let client = redis::Client::open("redis://127.0.0.1:6379").expect("Redis client working");
-    ConnectionManager::new(client).await
+use redis::{AsyncTypedCommands, aio::ConnectionManager};
+
+use crate::Error::ApiResult;
+
+pub async fn get_redis() -> ApiResult<ConnectionManager> {
+    let redis_url = env::var("REDIS_URL")?;
+    let client = redis::Client::open(redis_url).expect("Redis client working");
+    let res = ConnectionManager::new(client).await?;
+    Ok(res)
 }
-pub async fn health_check() -> Result<(), RedisError> {
-    get_redis().await?.ping().await
+pub async fn health_check() -> ApiResult<()> {
+    get_redis().await?.ping().await?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -14,5 +21,5 @@ async fn test_connection() {
         .await
         .expect("Error while getting connection manager");
     println!("{:?}", conn);
-    conn.ping::<()>().await.expect("Error while pingiing");
+    conn.ping().await.expect("Error while pingiing");
 }

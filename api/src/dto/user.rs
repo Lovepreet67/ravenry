@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-use crate::model::user::User;
+use crate::{
+    Error::{ApiError::Gen, ApiResult},
+    dto::utils::Pagination,
+    model::user::User,
+};
 
 #[derive(Deserialize)]
 pub struct CreateUserRequest {
@@ -33,4 +37,18 @@ impl From<User> for UserResponse {
             updated_at: value.updated_at,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UserFilter {
+    pub full_name: Option<String>,
+    pub username: Option<String>,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
+    pub username: Option<String>,
+    pub email: Option<String>,
+    pub password: String,
 }

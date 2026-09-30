@@ -1,8 +1,9 @@
-use std::format;
+use std::{env::VarError, format};
 
 use axum::{http::StatusCode, response::IntoResponse};
 use redis::RedisError;
 use serde::{Deserialize, Serialize};
+use validator::{Validate, ValidationError, ValidationErrors};
 
 use crate::Error::ApiError::{Gen, Generic};
 
@@ -13,6 +14,8 @@ pub enum ApiError {
     RedisError(String),
     Argon(String),
     Sqlx(String),
+    Validation(String),
+    VarError(String),
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -38,6 +41,17 @@ impl From<sqlx::Error> for ApiError {
     }
 }
 
+impl From<ValidationErrors> for ApiError {
+    fn from(value: ValidationErrors) -> Self {
+        Self::Validation(format!("{}", value.to_string()))
+    }
+}
+impl From<VarError> for ApiError {
+    fn from(value: VarError) -> Self {
+        Self::VarError(value.to_string())
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         match self {
@@ -46,6 +60,8 @@ impl IntoResponse for ApiError {
             Self::RedisError(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
             Self::Argon(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
             Self::Sqlx(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
+            Self::Validation(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
+            Self::VarError(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
         }
     }
 }
