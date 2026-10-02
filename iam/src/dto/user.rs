@@ -4,8 +4,8 @@ use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
 use crate::{
-    error::{ApiError::Gen, ApiResult},
     dto::utils::Pagination,
+    error::{ApiError::Gen, ApiResult},
     model::user::User,
 };
 
@@ -51,4 +51,29 @@ pub struct LoginRequest {
     pub username: Option<String>,
     pub email: Option<String>,
     pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertMemebershipRequest {
+    pub user_id: Uuid,
+    pub tenant_id: Uuid,
+    pub role_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpsertMemebershipResponse {
+    pub user_id: Uuid,
+    pub tenant_id: Uuid,
+    pub role_id: Uuid,
+    pub created: bool,
+}
+impl UpsertMemebershipResponse {
+    pub fn from_request(req: &UpsertMemebershipRequest, created: bool) -> Self {
+        Self {
+            user_id: req.user_id,
+            tenant_id: req.tenant_id,
+            role_id: req.role_id,
+            created,
+        }
+    }
 }

@@ -53,5 +53,6 @@ CREATE TABLE IF NOT EXISTS memberships(
     CONSTRAINT membership_role_id FOREIGN KEY (role_id) REFERENCES roles(id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_membership_user_id_tenant_id_role_id_unique on 
-memberships(user_id,tenant_id,role_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_membership_user_id_tenant_id_unique
+ON memberships(user_id, tenant_id);
+

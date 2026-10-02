@@ -16,6 +16,7 @@ pub enum ApiError {
     Sqlx(String),
     Validation(String),
     VarError(String),
+    UuidError(String),
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -51,6 +52,11 @@ impl From<VarError> for ApiError {
         Self::VarError(value.to_string())
     }
 }
+impl From<uuid::Error> for ApiError {
+    fn from(value: uuid::Error) -> Self {
+        Self::UuidError(value.to_string())
+    }
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
@@ -62,6 +68,7 @@ impl IntoResponse for ApiError {
             Self::Sqlx(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
             Self::Validation(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
             Self::VarError(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
+            Self::UuidError(val) => (StatusCode::INTERNAL_SERVER_ERROR, val).into_response(),
         }
     }
 }

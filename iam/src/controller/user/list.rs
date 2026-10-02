@@ -4,16 +4,18 @@ use axum::{
 };
 
 use crate::{
-    error::ApiResult,
     dto::{
         user::{UserFilter, UserResponse},
         utils::{PaginatedList, Pagination},
     },
+    error::ApiResult,
+    middleware::AdminAuth,
     service::user::list::list as list_service,
     state::AppState,
 };
 
 pub async fn list(
+    _admin: AdminAuth,
     State(mut state): State<AppState>,
     Query(pagination): Query<Pagination>,
     Query(filter): Query<UserFilter>,

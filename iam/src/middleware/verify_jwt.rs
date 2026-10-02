@@ -10,12 +10,13 @@ use axum_extra::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{service::auth::verify_token, state::AppState};
+use crate::{model::user::UserMembership, service::auth::verify_token, state::AppState};
 
 #[derive(Debug, Serialize)]
 pub struct CurrentUser {
     pub user_id: Uuid,
     pub username: String,
+    pub memberships: Vec<UserMembership>,
 }
 
 impl<S> FromRequestParts<S> for CurrentUser
@@ -42,6 +43,7 @@ where
         Ok(CurrentUser {
             user_id: claims.sub,
             username: claims.username,
+            memberships: claims.memberships,
         })
     }
 }

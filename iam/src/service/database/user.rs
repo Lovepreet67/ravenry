@@ -1,11 +1,11 @@
 use sqlx::{PgPool, QueryBuilder};
 
 use crate::{
-    error::ApiResult,
     dto::{
-        user::{UserFilter, UserResponse},
+        user::{UpsertMemebershipRequest, UserFilter, UserResponse},
         utils::{PageInfo, PaginatedList, Pagination},
     },
+    error::ApiResult,
     model::user::{NewUser, User},
 };
 
@@ -80,4 +80,25 @@ pub async fn list(
             total_rows: total_rows,
         },
     })
+}
+
+pub async fn upsert_membership(
+    req: &UpsertMemebershipRequest,
+    db_conn: &PgPool,
+) -> ApiResult<bool> {
+    let result = sqlx::query!(
+        r#"
+        INSERT INTO memberships (role_id, user_id, tenant_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (tenant_id, user_id)
+        DO UPDATE SET role_id = EXCLUDED.role_id
+        RETURNING (xmax = 0) AS "created"
+        "#,
+        req.role_id,
+        req.user_id,
+        req.tenant_id
+    )
+    .fetch_one(db_conn)
+    .await?;
+    Ok(result.created.unwrap_or(false))
 }

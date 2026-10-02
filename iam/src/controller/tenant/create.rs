@@ -3,11 +3,13 @@ use axum::{Json, extract::State};
 use crate::{
     dto::tenant::{CreateTenantRequest, TenantResponse},
     error::ApiResult,
+    middleware::AdminAuth,
     service::tenant::create::create_tenant,
     state::AppState,
 };
 
 pub async fn create(
+    _admin: AdminAuth,
     State(mut state): State<AppState>,
     Json(tenant_req): Json<CreateTenantRequest>,
 ) -> ApiResult<Json<TenantResponse>> {

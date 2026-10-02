@@ -1,11 +1,11 @@
 use sqlx::{PgPool, QueryBuilder};
 
 use crate::{
-    error::ApiResult,
     dto::{
         tenant::CreateTenantRequest,
         utils::{PageInfo, PaginatedList, Pagination},
     },
+    error::ApiResult,
     model::tenant::Tenant,
 };
 

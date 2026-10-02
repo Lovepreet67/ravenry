@@ -4,14 +4,16 @@ use axum::{
 };
 
 use crate::{
-    error::ApiResult,
     dto::utils::{PaginatedList, Pagination},
+    error::ApiResult,
+    middleware::AdminAuth,
     model::tenant::Tenant,
     service::tenant::list::list as list_service,
     state::AppState,
 };
 
 pub async fn list(
+    _admin: AdminAuth,
     State(mut state): State<AppState>,
     Query(pagination): Query<Pagination>,
 ) -> ApiResult<Json<PaginatedList<Tenant>>> {

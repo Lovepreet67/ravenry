@@ -4,12 +4,18 @@ use chrono::Utc;
 use redis::{AsyncTypedCommands, aio::ConnectionManager};
 
 use crate::{
+    dto::user::UpsertMemebershipRequest,
     error::{ApiError, ApiResult},
-    model::user::User,
+    model::user::{User, UserMemberships},
 };
 const USER_ACCOUNT_PREFIX: &str = "USER_ACCOUNT";
 const USER_ACCOUNT_BY_EMAIL: &str = "USER_ACCOUNT_BY_EMAIL";
 const USER_ACCOUNT_BY_USERNAME: &str = "USER_ACCOUNT_BY_USERNAME";
+const USER_MEMBERSHIPS_BY_USER_ID: &str = "USER_MEMBERSHIPS_BY_USER_ID";
+
+fn get_user_membership_key(user_id: impl std::fmt::Display) -> String {
+    format!("{USER_MEMBERSHIPS_BY_USER_ID}:{}", user_id)
+}
 
 fn get_user_key(id: impl std::fmt::Display) -> String {
     format!("{USER_ACCOUNT_PREFIX}:{id}")
@@ -94,4 +100,25 @@ pub async fn get_user_by_username(
         Some(id) => load_user_by_id(&id, conn).await,
         None => Ok(None),
     }
+}
+
+pub async fn upsert_membership(
+    req: &UpsertMemebershipRequest,
+    redis_conn: &mut ConnectionManager,
+) -> ApiResult<()> {
+    let key = get_user_membership_key(&req.user_id);
+    redis_conn
+        .hset(&key, &req.tenant_id.to_string(), &req.role_id.to_string())
+        .await?;
+    Ok(())
+}
+
+pub async fn list_memberships(
+    user_id: impl std::fmt::Display,
+    redis_conn: &mut ConnectionManager,
+) -> ApiResult<UserMemberships> {
+    let key = get_user_membership_key(&user_id);
+    let x = redis_conn.hgetall(&key).await?;
+    let memberships = UserMemberships::try_from(x)?;
+    Ok(memberships)
 }
