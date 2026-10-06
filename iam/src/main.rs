@@ -23,7 +23,7 @@ async fn main() {
         .merge(get_router().await)
         .layer(TraceLayer::new_for_http());
 
-    let listener = match tokio::net::TcpListener::bind("0.0.0.0:3000").await {
+    let listener = match tokio::net::TcpListener::bind("0.0.0.0:3002").await {
         Ok(l) => l,
         Err(e) => {
             panic!("Error int tcp listener,  {:?}", e);

@@ -16,3 +16,6 @@ pub async fn login(
 pub async fn me(user: CurrentUser) -> ApiResult<Json<CurrentUser>> {
     Ok(Json(user))
 }
+pub async fn get_public_key() -> &'static str {
+    include_str!("../../../keys/public.pem")
+}

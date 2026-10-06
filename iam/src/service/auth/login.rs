@@ -1,7 +1,7 @@
 use std::env;
 
 use crate::{
-    dto::auth::{AuthenticateResponse, LoginRequest, LoginResponse},
+    dto::auth::{LoginRequest, LoginResponse},
     error::ApiResult,
     model::user::{User, UserMemberships},
     service::{
@@ -11,14 +11,12 @@ use crate::{
 };
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
-use uuid::Uuid;
 use validator::Validate;
 
 use crate::model::auth::Claims;
-use jsonwebtoken::{EncodingKey, Header, encode};
+use jsonwebtoken::{Algorithm::RS256, EncodingKey, Header, encode};
 
 fn sign(user: &User, memberhips: UserMemberships) -> ApiResult<(String, usize)> {
-    let jwt_secret: String = env::var("JWT_SECRET").expect("Can't sign without JWT Secret");
     let jwt_ttl_hours: i64 = env::var("JWT_TTL_HOURS")
         .unwrap_or("24".into())
         .parse()
@@ -27,11 +25,15 @@ fn sign(user: &User, memberhips: UserMemberships) -> ApiResult<(String, usize)> 
     let exp = claims.exp;
 
     let token = encode(
-        &Header::default(), // default = HS256
+        &Header::new(RS256), // default = HS256
         &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+        &EncodingKey::from_rsa_pem(include_bytes!("../../../keys/private.pem"))
+            .expect("Error from rsa key"),
     )
-    .map_err(|e| crate::error::ApiError::Gen("failed to sign token"))?;
+    .map_err(|e| {
+        tracing::error!("{:?}", e);
+        return crate::error::ApiError::Gen("failed to sign token");
+    })?;
 
     Ok((token, exp))
 }

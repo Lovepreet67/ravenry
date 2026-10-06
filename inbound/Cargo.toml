@@ -1,0 +1,24 @@
+[package]
+name = "inbound"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+
+common = { path = "../common" } # your shared queue trait + Redis impl
+iam = { path = "../iam" }       # your shared JWT verification logic, if you split it out
+anyhow = "1.0.104"
+redis = "1.7.1"
+axum-extra = "0.12.6"
+jsonwebtoken = "11.1.0"
+dotenvy = "0.15.7"
