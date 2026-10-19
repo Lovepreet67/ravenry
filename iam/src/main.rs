@@ -1,33 +1,50 @@
-use core::panic;
-
-pub mod controller;
-pub mod error;
-pub mod middleware;
-pub mod router;
-pub mod state;
 use axum::Router;
-use tower_http::trace::TraceLayer;
-use tracing::info;
+use sqlx::postgres::PgPoolOptions;
+use std::{format, sync::Arc};
+use tokio::net::TcpListener;
 
-use crate::router::get_router;
-pub mod dto;
-pub mod model;
-pub mod service;
+use crate::{
+    config::Config,
+    domain::{
+        membership::repository::DatabaseMembershipRepository,
+        tenant::repository::DatabaseTenantRepository, user::repository::DatabaseUserRepository,
+    },
+    http::router,
+    state::AppState,
+};
+
+pub mod config;
+pub mod domain;
+pub mod http;
+pub mod shared;
+pub mod state;
 
 #[tokio::main]
-async fn main() {
-    dotenvy::dotenv().ok();
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    info!("Tracing is working");
-    let app = Router::new()
-        .merge(get_router().await)
-        .layer(TraceLayer::new_for_http());
-
-    let listener = match tokio::net::TcpListener::bind("0.0.0.0:3002").await {
-        Ok(l) => l,
-        Err(e) => {
-            panic!("Error int tcp listener,  {:?}", e);
-        }
+    dotenvy::dotenv().ok();
+    let config = Config::from_env()?;
+    let db_conn = PgPoolOptions::new()
+        .max_connections(10)
+        .after_connect(|_conn, _meta| {
+            Box::pin(async move {
+                tracing::info!("db connection aquired");
+                Ok(())
+            })
+        })
+        .connect(&config.database_url)
+        .await?;
+    let tenant_repo = DatabaseTenantRepository::new(db_conn.clone());
+    let user_repo = DatabaseUserRepository::new(db_conn.clone());
+    let membership_repo = DatabaseMembershipRepository::new(db_conn);
+    let state = AppState {
+        tenant_repo: Arc::new(tenant_repo),
+        user_repo: Arc::new(user_repo),
+        membership_repo: Arc::new(membership_repo),
+        config: config.clone(),
     };
-    _ = axum::serve(listener, app).await;
+    let app: Router<()> = router().with_state(state);
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", config.server_port)).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
 }

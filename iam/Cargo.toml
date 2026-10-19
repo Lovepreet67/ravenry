@@ -30,3 +30,6 @@ jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
 validator = { version = "0.21.0", features = ["derive"] }
 dotenvy = "0.15.7"
 axum-extra = { version = "0.12.6", features = ["typed-header"] }
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+async-trait = "0.1.92"
