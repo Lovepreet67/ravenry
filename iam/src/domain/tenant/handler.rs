@@ -8,7 +8,6 @@ use validator::Validate;
 use crate::{
     domain::tenant::{dto::*, service},
     shared::{
-        auth::admin::AdminAuth,
         error::ApiResult,
         pagination::{PaginatedList, Pagination},
     },
@@ -22,7 +21,6 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn create_tenant(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Json(req): Json<CreateTenantRequest>,
 ) -> ApiResult<Json<TenantResponse>> {
@@ -32,7 +30,6 @@ async fn create_tenant(
 }
 
 async fn get_tenant(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<TenantResponse>> {
@@ -41,7 +38,6 @@ async fn get_tenant(
 }
 
 async fn list_tenants(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Query(pagination): Query<Pagination>,
     Query(filter): Query<TenantFilter>,
@@ -51,7 +47,6 @@ async fn list_tenants(
 }
 
 async fn update_tenant(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateTenantRequest>,

@@ -8,7 +8,7 @@ pub struct Config {
     pub database_url: String,
     pub redis_url: String,
     pub admin_api_key: String,
-    pub jwt_ttl_hours: i64,
+    pub jwt_ttl_hours: u64,
     pub server_port: u16,
 }
 

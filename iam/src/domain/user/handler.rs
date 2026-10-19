@@ -8,7 +8,6 @@ use validator::Validate;
 use crate::{
     domain::user::{dto::*, service},
     shared::{
-        auth::admin::AdminAuth,
         error::ApiResult,
         pagination::{PaginatedList, Pagination},
     },
@@ -22,7 +21,6 @@ pub fn router() -> Router<AppState> {
 }
 
 async fn create_user(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Json(req): Json<CreateUserRequest>,
 ) -> ApiResult<Json<UserResponse>> {
@@ -32,7 +30,6 @@ async fn create_user(
 }
 
 async fn get_user(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<UserResponse>> {
@@ -41,7 +38,6 @@ async fn get_user(
 }
 
 async fn list_users(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Query(pagination): Query<Pagination>,
     Query(filters): Query<UserFilter>,
@@ -51,7 +47,6 @@ async fn list_users(
 }
 
 async fn update_user(
-    _admin: AdminAuth,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateUserRequest>,

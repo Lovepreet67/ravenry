@@ -11,6 +11,7 @@ pub trait UserRepository: Send + Sync + Debug {
         pagination: &Pagination,
     ) -> ApiResult<PaginatedList<User>>;
     async fn get(&self, id: &str) -> ApiResult<Option<User>>;
+    async fn get_by_username(&self, username: &str) -> ApiResult<Option<User>>;
     async fn update(&self, user: &User) -> ApiResult<User>;
 }
 use crate::shared::{
@@ -121,6 +122,19 @@ impl UserRepository for DatabaseUserRepository {
             where id = $1
             "#,
             id,
+        )
+        .fetch_optional(&self.db_conn)
+        .await?;
+        Ok(user)
+    }
+    async fn get_by_username(&self, username: &str) -> ApiResult<Option<User>> {
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            SELECT * FROM users
+            where username = $1
+            "#,
+            username,
         )
         .fetch_optional(&self.db_conn)
         .await?;

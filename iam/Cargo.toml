@@ -33,3 +33,4 @@ axum-extra = { version = "0.12.6", features = ["typed-header"] }
 anyhow = "1.0.104"
 thiserror = "2.0.21"
 async-trait = "0.1.92"
+subtle = "2.6.1"
