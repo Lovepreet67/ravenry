@@ -7,7 +7,8 @@ use crate::{
     config::Config,
     domain::{
         membership::repository::DatabaseMembershipRepository,
-        tenant::repository::DatabaseTenantRepository, user::repository::DatabaseUserRepository,
+        role::repository::DatabaseRoleRepository, tenant::repository::DatabaseTenantRepository,
+        user::repository::DatabaseUserRepository,
     },
     http::router,
     state::AppState,
@@ -37,11 +38,13 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     let tenant_repo = DatabaseTenantRepository::new(db_conn.clone());
     let user_repo = DatabaseUserRepository::new(db_conn.clone());
-    let membership_repo = DatabaseMembershipRepository::new(db_conn);
+    let membership_repo = DatabaseMembershipRepository::new(db_conn.clone());
+    let role_repo = DatabaseRoleRepository::new(db_conn);
     let state = AppState {
         tenant_repo: Arc::new(tenant_repo),
         user_repo: Arc::new(user_repo),
         membership_repo: Arc::new(membership_repo),
+        role_repo: Arc::new(role_repo),
         config: config.clone(),
     };
     let app: Router<()> = router().with_state(state);

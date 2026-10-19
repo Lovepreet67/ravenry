@@ -10,6 +10,8 @@ pub struct CreateTenantRequest {
     pub name: String,
     #[validate(length(min = 1))]
     pub slug: String,
+    #[validate(length(min = 1))]
+    pub default_role_slug: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]

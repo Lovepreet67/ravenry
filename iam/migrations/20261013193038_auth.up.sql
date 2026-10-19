@@ -1,4 +1,4 @@
-m-- Add up migration script here
+-- Add up migration script here
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -24,25 +24,31 @@ BEFORE UPDATE ON USERS
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+
+CREATE TABLE IF NOT EXISTS roles(
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title VARCHAR(256) NOT NULL,
+    slug varchar(256) UNIQUE NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS tenants(
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     name varchar(256) NOT NULL,
     slug varchar(256) NOT NULL UNIQUE,
+    default_role_id uuid NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- constraints
+    CONSTRAINT tenants_default_role_id FOREIGN KEY (default_role_id) REFERENCES roles(id)
 );
 CREATE TRIGGER tenants_updated_at 
 BEFORE UPDATE ON tenants
 FOR EACH ROW 
 EXECUTE FUNCTION set_updated_at();
 
-CREATE TABLE IF NOT EXISTS roles(
-    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(256) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
 CREATE TABLE IF NOT EXISTS memberships(
     user_id UUID NOT NULL,
@@ -56,5 +62,5 @@ CREATE TABLE IF NOT EXISTS memberships(
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_membership_user_id_tenant_id_unique
-ON memberships(user_id, tenant_id);
+ON memberships(user_id, tenant_id, role_id);
 

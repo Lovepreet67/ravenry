@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct NewTenant {
     pub name: String,
     pub slug: String,
+    pub default_role_id: Uuid,
     pub is_active: bool,
 }
 
@@ -15,6 +16,7 @@ pub struct Tenant {
     pub name: String,
     pub slug: String,
     pub is_active: bool,
+    pub default_role_id: Uuid,
     pub created_at: chrono::DateTime<Utc>,
     pub updated_at: chrono::DateTime<Utc>,
 }

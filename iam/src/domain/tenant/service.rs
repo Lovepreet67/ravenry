@@ -1,10 +1,15 @@
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use crate::{
-    domain::tenant::{
-        dto::{CreateTenantRequest, TenantFilter, TenantResponse, UpdateTenantRequest},
-        model::NewTenant,
-        repository::TenantRepository,
+    domain::{
+        role::repository::RoleRepository,
+        tenant::{
+            dto::{CreateTenantRequest, TenantFilter, TenantResponse, UpdateTenantRequest},
+            model::NewTenant,
+            repository::TenantRepository,
+        },
     },
     shared::{
         error::{ApiError, ApiResult},
@@ -14,21 +19,27 @@ use crate::{
 
 pub async fn create_tenant(
     repo: &Arc<dyn TenantRepository>,
+    role_repo: &Arc<dyn RoleRepository>,
     req: CreateTenantRequest,
 ) -> ApiResult<TenantResponse> {
-    let new_tenant: NewTenant = req.into();
+    let default_role = role_repo
+        .get_by_slug(req.default_role_slug.as_deref().unwrap_or("member"))
+        .await?
+        .ok_or(ApiError::BadRequest("Default Role Not Found".into()))?;
+
+    let new_tenant: NewTenant = NewTenant::from_req(req, default_role.id);
     let tenant = repo.create(&new_tenant).await?;
     Ok(tenant.into())
 }
 
-pub async fn get_tenant(repo: &Arc<dyn TenantRepository>, id: &str) -> ApiResult<TenantResponse> {
+pub async fn get_tenant(repo: &Arc<dyn TenantRepository>, id: Uuid) -> ApiResult<TenantResponse> {
     let tenant = repo.get(id).await?.ok_or(ApiError::NotFound)?;
     Ok(tenant.into())
 }
 
 pub async fn get_tenant_detail(
     repo: &Arc<dyn TenantRepository>,
-    id: &str,
+    id: Uuid,
 ) -> ApiResult<TenantResponse> {
     let tenant = repo.get(id).await?.ok_or(ApiError::NotFound)?;
     Ok(tenant.into())
@@ -48,7 +59,7 @@ pub async fn list_tenants(
 
 pub async fn update_tenant(
     repo: &Arc<dyn TenantRepository>,
-    id: &str,
+    id: Uuid,
     req: UpdateTenantRequest,
 ) -> ApiResult<TenantResponse> {
     // load-modify-save: fetch current state, apply only the fields the client sent

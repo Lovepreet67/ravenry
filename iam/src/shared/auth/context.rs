@@ -43,28 +43,59 @@ impl From<Claims> for AuthContext {
 }
 
 impl AuthContext {
-    pub fn is_admin(&self) -> bool {
-        matches!(self, Self::Admin)
+    pub fn assert_is_admin(&self) -> ApiResult<()> {
+        if !matches!(self, Self::Admin) {
+            return Err(ApiError::Unauthorized);
+        }
+        Ok(())
     }
     pub fn assert_tenant_access(
         &self,
         tenant_id: uuid::Uuid,
-        role_id: Option<uuid::Uuid>,
+        role_slug: Option<&str>,
     ) -> ApiResult<()> {
         match self {
             AuthContext::Admin => Ok(()),
             AuthContext::User(u) => {
-                let membership = match u.memberships.iter().find(|m| m.tenant_id == tenant_id) {
-                    None => return Err(ApiError::Forbidden),
-                    Some(m) => m,
-                };
-                if let Some(role) = role_id {
-                    if membership.role_id != role {
+                let memberships = u
+                    .memberships
+                    .iter()
+                    .filter(|m| m.tenant_id == tenant_id)
+                    .collect::<Vec<_>>();
+                if memberships.len() == 0 {
+                    return Err(ApiError::Forbidden);
+                }
+                if let Some(role) = role_slug {
+                    if memberships.iter().find(|m| m.role_slug == role).is_none() {
                         return Err(ApiError::Forbidden);
                     }
                 }
 
-                Err(ApiError::Forbidden)
+                Ok(())
+            }
+        }
+    }
+    pub fn assert_user_access(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: Option<uuid::Uuid>,
+    ) -> ApiResult<()> {
+        match self {
+            AuthContext::Admin => Ok(()),
+            AuthContext::User(u) => {
+                if u.user_id == user_id {
+                    return Ok(());
+                }
+                // user can access the specified user_id if logged in user is admin for specified tenant
+                if let Some(tenant_id) = tenant_id
+                    && u.memberships
+                        .iter()
+                        .find(|m| m.role_slug == "ownwer" && m.tenant_id == tenant_id)
+                        .is_some()
+                {
+                    return Ok(());
+                }
+                return Err(ApiError::Unauthorized);
             }
         }
     }

@@ -10,7 +10,7 @@ pub trait UserRepository: Send + Sync + Debug {
         filters: &UserFilter,
         pagination: &Pagination,
     ) -> ApiResult<PaginatedList<User>>;
-    async fn get(&self, id: &str) -> ApiResult<Option<User>>;
+    async fn get(&self, id: uuid::Uuid) -> ApiResult<Option<User>>;
     async fn get_by_username(&self, username: &str) -> ApiResult<Option<User>>;
     async fn update(&self, user: &User) -> ApiResult<User>;
 }
@@ -110,11 +110,7 @@ impl UserRepository for DatabaseUserRepository {
             },
         })
     }
-    async fn get(&self, id: &str) -> ApiResult<Option<User>> {
-        let id = uuid::Uuid::parse_str(id).map_err(|_| {
-            crate::shared::error::ApiError::BadRequest("Invlid userId provided".into())
-        })?;
-
+    async fn get(&self, id: uuid::Uuid) -> ApiResult<Option<User>> {
         let user = sqlx::query_as!(
             User,
             r#"

@@ -9,11 +9,13 @@ use crate::{
     },
 };
 use sqlx::{PgPool, Postgres, QueryBuilder};
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait TenantRepository: Send + Sync + Debug {
     async fn create(&self, tenant: &NewTenant) -> ApiResult<Tenant>;
-    async fn get(&self, id: &str) -> ApiResult<Option<Tenant>>;
+    async fn get(&self, id: Uuid) -> ApiResult<Option<Tenant>>;
+    async fn get_by_slug(&self, slug: &str) -> ApiResult<Option<Tenant>>;
     async fn list(
         &self,
         filter: &TenantFilter,
@@ -39,12 +41,13 @@ impl TenantRepository for DatabaseTenantRepository {
         let tenant = sqlx::query_as!(
             Tenant,
             r#" 
-            INSERT INTO tenants (name, slug)
-            VALUES ($1, $2)
-            RETURNING id, name, slug, is_active, created_at, updated_at
+            INSERT INTO tenants (name, slug, default_role_id)
+            VALUES ($1, $2, $3)
+            RETURNING id, name, slug, is_active,default_role_id, created_at, updated_at
             "#,
             tenant.name,
             tenant.slug,
+            tenant.default_role_id
         )
         .fetch_one(&self.conn)
         .await?; // sqlx::Error -> ApiError via the From impl above; unique violation on `slug` becomes 409 automatically
@@ -52,18 +55,30 @@ impl TenantRepository for DatabaseTenantRepository {
         Ok(tenant)
     }
 
-    async fn get(&self, id: &str) -> ApiResult<Option<Tenant>> {
-        let id = uuid::Uuid::parse_str(id)
-            .map_err(|_| crate::shared::error::ApiError::BadRequest("invalid tenant id".into()))?;
-
+    async fn get(&self, id: Uuid) -> ApiResult<Option<Tenant>> {
         let tenant = sqlx::query_as!(
             Tenant,
             r#"
-            SELECT id, name, slug, is_active, created_at, updated_at
+            SELECT id, name, slug, is_active,default_role_id, created_at, updated_at
             FROM tenants
             WHERE id = $1
             "#,
             id,
+        )
+        .fetch_optional(&self.conn) // fetch_optional, not fetch_one — missing row is a valid, non-error outcome here
+        .await?;
+
+        Ok(tenant)
+    }
+    async fn get_by_slug(&self, slug: &str) -> ApiResult<Option<Tenant>> {
+        let tenant = sqlx::query_as!(
+            Tenant,
+            r#"
+            SELECT id, name, slug, is_active,default_role_id, created_at, updated_at
+            FROM tenants
+            WHERE slug = $1
+            "#,
+            slug,
         )
         .fetch_optional(&self.conn) // fetch_optional, not fetch_one — missing row is a valid, non-error outcome here
         .await?;
@@ -89,7 +104,7 @@ impl TenantRepository for DatabaseTenantRepository {
         let total_rows: i64 = count_qb.build_query_scalar().fetch_one(&self.conn).await?;
 
         let mut data_qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT id, name, slug, is_active, created_at, updated_at FROM tenants",
+            "SELECT id, name, slug, is_active,default_role_id, created_at, updated_at FROM tenants",
         );
         apply_filter(&mut data_qb);
         data_qb.push(" ORDER BY created_at DESC LIMIT ");
@@ -119,7 +134,7 @@ impl TenantRepository for DatabaseTenantRepository {
             UPDATE tenants
             SET name = $1, slug = $2, is_active = $3
             WHERE id = $4
-            RETURNING id, name, slug, is_active, created_at, updated_at
+            RETURNING id, name, slug, is_active,default_role_id, created_at, updated_at
             "#,
             tenant.name,
             tenant.slug,

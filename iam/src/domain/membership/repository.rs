@@ -31,12 +31,12 @@ impl MembershipRepository for DatabaseMembershipRepository {
             r#"
                 WITH membership as (INSERT INTO memberships (user_id, tenant_id, role_id) 
                 VALUES ($1, $2, $3)
-                ON CONFLICT (user_id,tenant_id)
+                ON CONFLICT (user_id,tenant_id,role_id)
                 DO UPDATE SET ROLE_ID = $3
                 RETURNING user_id, tenant_id, role_id )
                 SELECT 
-                roles.title as role_title, roles.id as role_id,
-                tenants.name as tenant_name, tenants.id as tenant_id
+                roles.title as role_title,roles.slug as role_slug, roles.id as role_id,
+                tenants.name as tenant_name, tenants.slug as tenant_slug, tenants.id as tenant_id
                 FROM membership 
                 INNER JOIN roles on roles.id = membership.role_id
                 INNER JOIN tenants on tenants.id = membership.tenant_id
@@ -54,8 +54,8 @@ impl MembershipRepository for DatabaseMembershipRepository {
             MembershipDetails,
             r#"
         SELECT 
-        roles.title as role_title, roles.id as role_id,
-        tenants.name as tenant_name, tenants.id as tenant_id
+        roles.title as role_title, roles.slug as role_slug, roles.id as role_id,
+        tenants.name as tenant_name, tenants.slug as tenant_slug, tenants.id as tenant_id
         FROM memberships 
         INNER JOIN roles on roles.id = memberships.role_id
         INNER JOIN tenants on tenants.id = memberships.tenant_id

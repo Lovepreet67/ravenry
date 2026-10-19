@@ -17,6 +17,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/me", get(me))
+        .route("/auth/public-key", get(public_key))
 }
 
 async fn login(
@@ -35,4 +36,8 @@ async fn login(
 
 async fn me(auth_context: AuthContext) -> ApiResult<Json<UserInfo>> {
     Ok(Json(auth_context.into()))
+}
+async fn public_key() -> ApiResult<&'static str> {
+    let key = include_str!("../../keys/public.pem");
+    Ok(key)
 }

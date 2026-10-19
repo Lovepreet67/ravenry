@@ -16,11 +16,12 @@ impl From<Tenant> for TenantResponse {
     }
 }
 
-impl From<CreateTenantRequest> for NewTenant {
-    fn from(value: CreateTenantRequest) -> Self {
+impl NewTenant {
+    pub fn from_req(value: CreateTenantRequest, default_role_id: uuid::Uuid) -> Self {
         Self {
             name: value.name,
             slug: value.slug,
+            default_role_id: default_role_id,
             is_active: true,
         }
     }

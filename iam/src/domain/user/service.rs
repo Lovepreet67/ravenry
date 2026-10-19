@@ -33,14 +33,14 @@ pub async fn list_users(
     })
 }
 
-pub async fn get_user(repo: &Arc<dyn UserRepository>, id: &str) -> ApiResult<UserResponse> {
+pub async fn get_user(repo: &Arc<dyn UserRepository>, id: uuid::Uuid) -> ApiResult<UserResponse> {
     let res = repo.get(id).await?.ok_or(ApiError::NotFound)?;
     Ok(res.into())
 }
 
 pub async fn update_user(
     repo: &Arc<dyn UserRepository>,
-    id: &str,
+    id: uuid::Uuid,
     req: UpdateUserRequest,
 ) -> ApiResult<UserResponse> {
     let mut user = repo.get(id).await?.ok_or(ApiError::NotFound)?;
