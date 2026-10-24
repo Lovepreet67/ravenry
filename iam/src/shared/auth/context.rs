@@ -99,6 +99,12 @@ impl AuthContext {
             }
         }
     }
+    pub fn get_email(&self) -> String {
+        match self {
+            AuthContext::Admin => "admin".into(),
+            AuthContext::User(u) => return u.email.clone(),
+        }
+    }
 }
 
 impl FromRequestParts<AppState> for AuthContext {

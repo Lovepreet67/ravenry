@@ -92,9 +92,31 @@ impl TenantRepository for DatabaseTenantRepository {
         pagination: &Pagination,
     ) -> ApiResult<PaginatedList<Tenant>> {
         let apply_filter = |qb: &mut QueryBuilder<Postgres>| {
+            let mut where_used = false;
             if let Some(is_active) = filter.is_active {
+                where_used = true;
                 qb.push(" WHERE is_active = ");
                 qb.push_bind(is_active);
+            }
+            if let Some(name) = filter.name.as_ref() {
+                if where_used {
+                    qb.push(" AND name like %");
+                } else {
+                    qb.push(" WHERE name like %");
+                }
+                qb.push_bind(name.clone());
+                qb.push("%");
+                where_used = true;
+            }
+            if let Some(slug) = filter.slug.as_ref() {
+                if where_used {
+                    qb.push(" AND slug like %");
+                } else {
+                    qb.push(" WHERE slug like %");
+                }
+                qb.push_bind(slug.clone());
+                qb.push("%");
+                where_used = true;
             }
         };
 

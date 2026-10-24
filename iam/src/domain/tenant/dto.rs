@@ -33,5 +33,7 @@ pub struct UpdateTenantRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct TenantFilter {
+    pub slug: Option<String>,
+    pub name: Option<String>,
     pub is_active: Option<bool>,
 }

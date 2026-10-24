@@ -6,9 +6,10 @@ use tokio::net::TcpListener;
 use crate::{
     config::Config,
     domain::{
+        destination::repository::DatabaseDestinationRepository,
         membership::repository::DatabaseMembershipRepository,
         role::repository::DatabaseRoleRepository, tenant::repository::DatabaseTenantRepository,
-        user::repository::DatabaseUserRepository,
+        topic::repository::DatabaseTopicRepository, user::repository::DatabaseUserRepository,
     },
     http::router,
     state::AppState,
@@ -39,12 +40,16 @@ async fn main() -> anyhow::Result<()> {
     let tenant_repo = DatabaseTenantRepository::new(db_conn.clone());
     let user_repo = DatabaseUserRepository::new(db_conn.clone());
     let membership_repo = DatabaseMembershipRepository::new(db_conn.clone());
-    let role_repo = DatabaseRoleRepository::new(db_conn);
+    let role_repo = DatabaseRoleRepository::new(db_conn.clone());
+    let destination_repo = DatabaseDestinationRepository::new(db_conn.clone());
+    let topic_repo = DatabaseTopicRepository::new(db_conn);
     let state = AppState {
         tenant_repo: Arc::new(tenant_repo),
         user_repo: Arc::new(user_repo),
         membership_repo: Arc::new(membership_repo),
         role_repo: Arc::new(role_repo),
+        destination_repo: Arc::new(destination_repo),
+        topic_repo: Arc::new(topic_repo),
         config: config.clone(),
     };
     let app: Router<()> = router().with_state(state);

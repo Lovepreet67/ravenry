@@ -3,8 +3,10 @@ use std::sync::Arc;
 use crate::{
     config::Config,
     domain::{
+        destination::repository::DestinationRepository,
         membership::repository::MembershipRepository, role::repository::RoleRepository,
-        tenant::repository::TenantRepository, user::repository::UserRepository,
+        tenant::repository::TenantRepository, topic::repository::TopicRepository,
+        user::repository::UserRepository,
     },
 };
 
@@ -14,5 +16,7 @@ pub struct AppState {
     pub user_repo: Arc<dyn UserRepository>,
     pub membership_repo: Arc<dyn MembershipRepository>,
     pub role_repo: Arc<dyn RoleRepository>,
+    pub destination_repo: Arc<dyn DestinationRepository>,
+    pub topic_repo: Arc<dyn TopicRepository>,
     pub config: Arc<Config>,
 }
