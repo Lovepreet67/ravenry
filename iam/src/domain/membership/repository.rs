@@ -4,6 +4,7 @@ use sqlx::PgPool;
 
 use crate::{
     domain::membership::model::{MembershipDetails, UserMembership, UserMembershipDetails},
+    platform::outbox::{event::NewOutboxEvent, store as outbox_store},
     shared::error::ApiResult,
 };
 
@@ -26,6 +27,7 @@ impl DatabaseMembershipRepository {
 #[async_trait::async_trait]
 impl MembershipRepository for DatabaseMembershipRepository {
     async fn upsert(&self, membership: UserMembership) -> ApiResult<MembershipDetails> {
+        let mut tx = self.db_conn.begin().await?;
         let m = sqlx::query_as!(
             MembershipDetails,
             r#"
@@ -45,8 +47,11 @@ impl MembershipRepository for DatabaseMembershipRepository {
             membership.tenant_id,
             membership.role_id,
         )
-        .fetch_one(&self.db_conn)
+        .fetch_one(&mut *tx)
         .await?;
+        let event = NewOutboxEvent::tenant_projection_refresh(membership.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(m)
     }
     async fn list(&self, user_id: uuid::Uuid) -> ApiResult<UserMembershipDetails> {

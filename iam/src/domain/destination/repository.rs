@@ -8,6 +8,7 @@ use crate::{
         dto::DestinationFilter,
         model::{Destination, NewDestination},
     },
+    platform::outbox::{event::NewOutboxEvent, store as outbox_store},
     shared::{
         error::ApiResult,
         pagination::{PageInfo, PaginatedList, Pagination},
@@ -75,6 +76,7 @@ fn apply_filter<'a>(
 #[async_trait::async_trait]
 impl DestinationRepository for DatabaseDestinationRepository {
     async fn create(&self, destination: NewDestination) -> ApiResult<Destination> {
+        let mut tx = self.db_conn.begin().await?;
         let created = sqlx::query_as!(
             Destination,
             r#"INSERT INTO destinations
@@ -93,8 +95,11 @@ impl DestinationRepository for DatabaseDestinationRepository {
             destination.tenant_id,
             destination.created_by,
         )
-        .fetch_one(&self.db_conn)
+        .fetch_one(&mut *tx)
         .await?;
+        let event = NewOutboxEvent::tenant_projection_refresh(destination.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(created)
     }
 
@@ -161,6 +166,7 @@ impl DestinationRepository for DatabaseDestinationRepository {
     }
 
     async fn update(&self, destination: Destination) -> ApiResult<Destination> {
+        let mut tx = self.db_conn.begin().await?;
         let updated = sqlx::query_as!(
             Destination,
             r#"UPDATE destinations
@@ -182,8 +188,11 @@ impl DestinationRepository for DatabaseDestinationRepository {
             destination.id,
             destination.tenant_id,
         )
-        .fetch_one(&self.db_conn)
+        .fetch_one(&mut *tx)
         .await?;
+        let event = NewOutboxEvent::tenant_projection_refresh(destination.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(updated)
     }
 }

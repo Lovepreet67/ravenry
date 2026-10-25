@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use crate::{
     domain::tenant::dto::TenantFilter,
     domain::tenant::model::{NewTenant, Tenant},
+    platform::outbox::{event::NewOutboxEvent, store as outbox_store},
     shared::{
         error::ApiResult,
         pagination::{PageInfo, PaginatedList, Pagination},
@@ -38,6 +39,7 @@ impl DatabaseTenantRepository {
 #[async_trait::async_trait]
 impl TenantRepository for DatabaseTenantRepository {
     async fn create(&self, tenant: &NewTenant) -> ApiResult<Tenant> {
+        let mut tx = self.conn.begin().await?;
         let tenant = sqlx::query_as!(
             Tenant,
             r#" 
@@ -49,9 +51,11 @@ impl TenantRepository for DatabaseTenantRepository {
             tenant.slug,
             tenant.default_role_id
         )
-        .fetch_one(&self.conn)
+        .fetch_one(&mut *tx)
         .await?; // sqlx::Error -> ApiError via the From impl above; unique violation on `slug` becomes 409 automatically
-
+        let event = NewOutboxEvent::tenant_projection_refresh(tenant.id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(tenant)
     }
 
@@ -150,6 +154,7 @@ impl TenantRepository for DatabaseTenantRepository {
     }
 
     async fn update(&self, tenant: &Tenant) -> ApiResult<Tenant> {
+        let mut tx = self.conn.begin().await?;
         let updated = sqlx::query_as!(
             Tenant,
             r#"
@@ -163,10 +168,12 @@ impl TenantRepository for DatabaseTenantRepository {
             tenant.is_active,
             tenant.id,
         )
-        .fetch_optional(&self.conn)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or(crate::shared::error::ApiError::NotFound)?; // no row matched `id` -> 404, not a silent panic
-
+        let event = NewOutboxEvent::tenant_projection_refresh(tenant.id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(updated)
     }
 }

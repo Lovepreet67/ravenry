@@ -12,13 +12,20 @@ use crate::{
         topic::repository::DatabaseTopicRepository, user::repository::DatabaseUserRepository,
     },
     http::router,
+    platform::{
+        outbox::{handler, worker},
+        projection::resync,
+        redis_provider,
+    },
     state::AppState,
 };
+use std::time::Duration;
 
 pub mod auth;
 pub mod config;
 pub mod domain;
 pub mod http;
+pub mod platform;
 pub mod shared;
 pub mod state;
 
@@ -37,6 +44,11 @@ async fn main() -> anyhow::Result<()> {
         })
         .connect(&config.database_url)
         .await?;
+    let mut redis = redis_provider::connect(&config.redis_url).await?;
+    let _ = resync::resync(&db_conn, &mut redis).await;
+
+    // Start background processing.
+    let _outbox_worker = platform::worker::outbox_worker::spawn(db_conn.clone(), redis.clone());
     let tenant_repo = DatabaseTenantRepository::new(db_conn.clone());
     let user_repo = DatabaseUserRepository::new(db_conn.clone());
     let membership_repo = DatabaseMembershipRepository::new(db_conn.clone());

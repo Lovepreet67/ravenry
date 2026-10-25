@@ -1026,6 +1026,7 @@ dependencies = [
  "axum-extra",
  "chrono",
  "dotenvy",
+ "iam-contracts",
  "jsonwebtoken",
  "redis",
  "serde",
@@ -1039,6 +1040,15 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "validator",
+]
+
+[[package]]
+name = "iam-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

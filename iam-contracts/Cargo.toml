@@ -1,0 +1,12 @@
+
+[package]
+name = "iam-contracts"
+version = "0.1.0"
+edition = "2024"
+description = "Shared contracts and Redis key conventions for the IAM and event delivery system"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+uuid = { version = "1.26.1", features = ["serde", "v4"] }

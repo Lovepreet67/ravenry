@@ -1,14 +1,15 @@
 use std::{fmt::Debug, println};
 
-use sqlx::{Executor, PgPool, Postgres, QueryBuilder};
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::{
     domain::topic::{
         dto::TopicFilter,
         model::{DestinationLink, NewTopic, Topic},
     },
+    platform::outbox::{event::NewOutboxEvent, store as outbox_store},
     shared::{
-        error::{ApiError, ApiResult},
+        error::ApiResult,
         pagination::{PageInfo, PaginatedList, Pagination},
     },
 };
@@ -81,6 +82,7 @@ fn apply_filter<'a>(
 #[async_trait::async_trait]
 impl TopicRepository for DatabaseTopicRepository {
     async fn create(&self, topic: NewTopic) -> ApiResult<Topic> {
+        let mut tx = self.db_conn.begin().await?;
         let created = sqlx::query_as!(
             Topic,
             r#"INSERT INTO topics
@@ -94,8 +96,11 @@ impl TopicRepository for DatabaseTopicRepository {
             topic.tenant_id,
             topic.created_by,
         )
-        .fetch_one(&self.db_conn)
+        .fetch_one(&mut *tx)
         .await?;
+        let event = NewOutboxEvent::tenant_projection_refresh(topic.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(created)
     }
 
@@ -153,6 +158,7 @@ impl TopicRepository for DatabaseTopicRepository {
     }
 
     async fn update(&self, topic: Topic) -> ApiResult<Topic> {
+        let mut tx = self.db_conn.begin().await?;
         let updated = sqlx::query_as!(
             Topic,
             r#"UPDATE topics
@@ -167,8 +173,11 @@ impl TopicRepository for DatabaseTopicRepository {
             topic.id,
             topic.tenant_id,
         )
-        .fetch_one(&self.db_conn)
+        .fetch_one(&mut *tx)
         .await?;
+        let event = NewOutboxEvent::tenant_projection_refresh(topic.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
+        tx.commit().await?;
         Ok(updated)
     }
 
@@ -210,7 +219,8 @@ impl TopicRepository for DatabaseTopicRepository {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(crate::shared::error::ApiError::NotFound)?;
-
+        let event = NewOutboxEvent::tenant_projection_refresh(destination_link.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
         tx.commit().await?;
 
         Ok(topic)
@@ -255,6 +265,8 @@ impl TopicRepository for DatabaseTopicRepository {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(crate::shared::error::ApiError::NotFound)?;
+        let event = NewOutboxEvent::tenant_projection_refresh(destination_link.tenant_id);
+        outbox_store::insert(&mut tx, &event).await?;
 
         tx.commit().await?;
 
