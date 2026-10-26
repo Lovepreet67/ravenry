@@ -1,18 +1,20 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-#[derive(FromRow, Serialize, Deserialize)]
-pub struct User {
+pub type User = iam_contracts::auth::model::User;
+
+#[derive(Debug, FromRow)]
+pub struct UserRecord {
     pub id: Uuid,
     pub full_name: String,
     pub email: String,
     pub username: String,
     pub password_hash: String,
     pub is_active: bool,
-    pub created_at: chrono::DateTime<Utc>,
-    pub updated_at: chrono::DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 pub struct NewUser {

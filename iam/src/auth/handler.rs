@@ -28,6 +28,7 @@ async fn login(
         &app_state.user_repo,
         &app_state.membership_repo,
         &app_state.config,
+        app_state.jwt_signer,
         req,
     )
     .await?;

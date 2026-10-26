@@ -1,38 +1,45 @@
-use std::{println, sync::Arc};
+use std::sync::Arc;
 
-use common::queue::{redis_stream::RedisQueue, Queue};
+use crate::platform::auth::keys::PublicKeyStore;
+use iam_contracts::auth::jwt::verifier::JwtVerifier;
 
-mod http;
-pub mod model;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub queue: Arc<dyn Queue>,
-    pub jwt_secret: Arc<String>,
-}
+pub mod application;
+pub mod config;
+pub mod platform;
+pub mod state;
+pub mod transport;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
+    let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".into());
+    let config = Arc::new(config::Config::load(config_path)?);
+    let queue = streamforge::factory::build_queue(&config.queue).await?;
+    let projections =
+        platform::projection_store::ProjectionStore::connect(&config.projection.redis_url).await?;
 
-    let redis_url = std::env::var("REDIS_URL")?;
-    let jwt_secret = std::env::var("JWT_SECRET")?;
-    println!("Both found");
-
-    let client = redis::Client::open(redis_url)?;
-    let conn = redis::aio::ConnectionManager::new(client).await?;
-    let queue: Arc<dyn Queue> = Arc::new(RedisQueue::new(conn));
-
-    let state = AppState {
+    let publish_roles = config.iam.publish_roles.iter().cloned().collect();
+    let public_key = PublicKeyStore::fetch(&config.iam.public_key_url).await?;
+    let jwt_verifier = JwtVerifier::from_pem(public_key.as_bytes())?;
+    let state = state::AppState {
+        config: config.clone(),
         queue,
-        jwt_secret: Arc::new(jwt_secret),
+        publish_roles: Arc::new(publish_roles),
+        jwt_verifier: Arc::new(jwt_verifier),
+        projections,
     };
 
-    let app = http::router::build(state);
+    let app = transport::http::router::get_router().with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    tracing::info!("inbound listening on 0.0.0.0:3000");
+    let listener =
+        tokio::net::TcpListener::bind((config.server.host.as_str(), config.server.port)).await?;
+
+    tracing::info!(
+        "inbound listening on {}:{}",
+        config.server.host,
+        config.server.port
+    );
+
     axum::serve(listener, app).await?;
 
     Ok(())

@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use iam_contracts::auth::error::AuthError;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -85,6 +86,16 @@ impl From<uuid::Error> for ApiError {
 impl From<argon2::password_hash::phc::Error> for ApiError {
     fn from(value: argon2::password_hash::phc::Error) -> Self {
         return ApiError::NotHandled(anyhow::anyhow!(value));
+    }
+}
+impl From<AuthError> for ApiError {
+    fn from(value: AuthError) -> Self {
+        match value {
+            AuthError::BadRequest(msg) => Self::BadRequest(msg),
+            AuthError::Unauthorized => Self::Unauthorized,
+            AuthError::Forbidden => Self::Forbidden,
+            AuthError::Internal(err) => Self::Internal(err),
+        }
     }
 }
 

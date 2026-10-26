@@ -2,7 +2,8 @@
 # will have compiled files and executables
 debug
 target
-*.env
+*.env*
+
 iam/keys*
 temp*
 

@@ -1,4 +1,5 @@
 use axum::Router;
+use iam_contracts::auth::jwt::{signer::JwtSigner, verifier::JwtVerifier};
 use sqlx::postgres::PgPoolOptions;
 use std::{format, sync::Arc};
 use tokio::net::TcpListener;
@@ -55,6 +56,8 @@ async fn main() -> anyhow::Result<()> {
     let role_repo = DatabaseRoleRepository::new(db_conn.clone());
     let destination_repo = DatabaseDestinationRepository::new(db_conn.clone());
     let topic_repo = DatabaseTopicRepository::new(db_conn);
+    let jwt_signer = JwtSigner::from_pem(include_bytes!("../keys/private.pem"))?;
+    let jwt_verifier = JwtVerifier::from_pem(include_bytes!("../keys/public.pem"))?;
     let state = AppState {
         tenant_repo: Arc::new(tenant_repo),
         user_repo: Arc::new(user_repo),
@@ -63,6 +66,8 @@ async fn main() -> anyhow::Result<()> {
         destination_repo: Arc::new(destination_repo),
         topic_repo: Arc::new(topic_repo),
         config: config.clone(),
+        jwt_verifier: Arc::new(jwt_verifier),
+        jwt_signer: Arc::new(jwt_signer),
     };
     let app: Router<()> = router().with_state(state);
     let listener = TcpListener::bind(format!("0.0.0.0:{}", config.server_port)).await?;

@@ -14,9 +14,12 @@ pub trait UserRepository: Send + Sync + Debug {
     async fn get_by_username(&self, username: &str) -> ApiResult<Option<User>>;
     async fn update(&self, user: &User) -> ApiResult<User>;
 }
-use crate::shared::{
-    error::ApiResult,
-    pagination::{PageInfo, PaginatedList, Pagination},
+use crate::{
+    domain::user::model::UserRecord,
+    shared::{
+        error::ApiResult,
+        pagination::{PageInfo, PaginatedList, Pagination},
+    },
 };
 
 use crate::{
@@ -97,12 +100,12 @@ impl UserRepository for DatabaseUserRepository {
         data_qb.push_bind(pagination.get_page_size() * (pagination.get_page_no() - 1));
 
         let rows = data_qb
-            .build_query_as::<User>()
+            .build_query_as::<UserRecord>()
             .fetch_all(&self.db_conn)
             .await?;
 
         Ok(PaginatedList {
-            list: rows,
+            list: rows.into_iter().map(Into::into).collect(),
             page_info: PageInfo {
                 page_size: pagination.get_page_size(),
                 page_no: pagination.get_page_no(),

@@ -15,10 +15,14 @@ serde_json = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
 
-common = { path = "../common" } # your shared queue trait + Redis impl
-iam = { path = "../iam" }       # your shared JWT verification logic, if you split it out
+streamforge = { path = "../streamforge" } # your shared queue trait + Redis impl
 anyhow = "1.0.104"
-redis = "1.7.1"
+redis = { version = "1.7.1", features = [
+    "aio",
+    "tokio-comp",
+    "connection-manager",
+] }
 axum-extra = "0.12.6"
-jsonwebtoken = "11.1.0"
-dotenvy = "0.15.7"
+toml = "1.1.8"
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+iam-contracts = { path = "../iam-contracts" }

@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     domain::user::{
         dto::{CreateUserRequest, UserResponse},
-        model::{NewUser, User, UserMembership, UserMemberships},
+        model::{NewUser, User, UserMembership, UserMemberships, UserRecord},
     },
     shared::{auth::crypto::create_password_hash, error::ApiError},
 };
@@ -50,5 +50,19 @@ impl TryFrom<HashMap<String, String>> for UserMemberships {
             memberships.push(UserMembership { role_id, tenant_id });
         }
         Ok(UserMemberships::new(memberships))
+    }
+}
+impl From<UserRecord> for User {
+    fn from(value: UserRecord) -> Self {
+        Self {
+            id: value.id,
+            full_name: value.full_name,
+            email: value.email,
+            username: value.username,
+            password_hash: value.password_hash,
+            is_active: value.is_active,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+        }
     }
 }

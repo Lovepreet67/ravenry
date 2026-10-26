@@ -8,15 +8,7 @@ pub struct UserMembership {
     pub role_id: uuid::Uuid,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MembershipDetails {
-    pub tenant_id: uuid::Uuid,
-    pub tenant_name: String,
-    pub tenant_slug: String,
-    pub role_id: uuid::Uuid,
-    pub role_title: String,
-    pub role_slug: String,
-}
+pub type MembershipDetails = iam_contracts::auth::model::MembershipDetails;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserMembershipDetails {

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use iam_contracts::auth::jwt::{signer::JwtSigner, verifier::JwtVerifier};
+
 use crate::{
     config::Config,
     domain::{
@@ -19,4 +21,6 @@ pub struct AppState {
     pub destination_repo: Arc<dyn DestinationRepository>,
     pub topic_repo: Arc<dyn TopicRepository>,
     pub config: Arc<Config>,
+    pub jwt_verifier: Arc<JwtVerifier>,
+    pub jwt_signer: Arc<JwtSigner>,
 }
