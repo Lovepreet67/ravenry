@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 /// Current schema version for tenant projection events.
@@ -19,5 +20,28 @@ pub struct TenantProjectionEvent {
 impl TenantProjectionEvent {
     pub fn new(tenant_id: Uuid) -> Self {
         Self { tenant_id }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishedEvent {
+    pub schema_version: u16,
+    pub event_id: Uuid,
+    pub tenant_id: Uuid,
+    pub topic_id: Uuid,
+    pub topic_path: String,
+    pub payload: Value,
+}
+
+impl PublishedEvent {
+    pub fn new(tenant_id: Uuid, topic_id: Uuid, topic_path: String, payload: Value) -> Self {
+        Self {
+            schema_version: 1,
+            event_id: Uuid::new_v4(),
+            tenant_id,
+            topic_id,
+            topic_path,
+            payload,
+        }
     }
 }

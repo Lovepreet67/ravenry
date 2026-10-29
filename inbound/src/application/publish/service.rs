@@ -39,13 +39,21 @@ impl PublishService {
             .map_err(|_| PublishError::ProjectionUnavailable)?
             .ok_or(PublishError::TopicNotFound)?;
 
-        let payload = serde_json::to_vec(&command.payload)
+        let event = iam_contracts::events::PublishedEvent::new(
+            tenant_id,
+            topic_id,
+            command.topic_path,
+            command.payload,
+        );
+
+        let payload = serde_json::to_vec(&event)
             .map_err(|err| PublishError::InvalidRequest(err.to_string()))?;
 
-        let message = Message::new(payload);
+        let message = Message::new(payload).with_id(event.event_id.to_string());
+        let destination = iam_contracts::streams::topic_events(tenant_id, topic_id);
 
         self.queue
-            .publish(&topic_id.to_string(), message)
+            .publish(&destination, message)
             .await
             .map_err(|_| PublishError::QueueUnavailable)
     }

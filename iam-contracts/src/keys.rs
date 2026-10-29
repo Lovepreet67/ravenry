@@ -48,3 +48,6 @@ pub fn destination(tenant_id: Uuid, destination_id: Uuid) -> String {
 pub fn tenant_projection_keys(tenant_id: Uuid) -> String {
     return format!("{KEY_PREFIX}:tenant:{tenant_id}:projection-keys");
 }
+
+/// Registry of active tenant/topic pairs available for event consumption.
+pub const ACTIVE_TOPIC_STREAMS: &str = "v1:registry:active-topic-streams";

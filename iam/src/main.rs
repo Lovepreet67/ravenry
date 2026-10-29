@@ -3,6 +3,7 @@ use iam_contracts::auth::jwt::{signer::JwtSigner, verifier::JwtVerifier};
 use sqlx::postgres::PgPoolOptions;
 use std::{format, sync::Arc};
 use tokio::net::TcpListener;
+use tracing::{error, info};
 
 use crate::{
     config::Config,
@@ -46,7 +47,10 @@ async fn main() -> anyhow::Result<()> {
         .connect(&config.database_url)
         .await?;
     let mut redis = redis_provider::connect(&config.redis_url).await?;
-    let _ = resync::resync(&db_conn, &mut redis).await;
+    match resync::resync(&db_conn, &mut redis).await {
+        Ok(_) => info!("resync successfull"),
+        Err(e) => error!("Working on the error {e}"),
+    };
 
     // Start background processing.
     let _outbox_worker = platform::worker::outbox_worker::spawn(db_conn.clone(), redis.clone());

@@ -1,23 +1,79 @@
 services:
   redis:
     image: redis:8
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-your_password_here}", "--appendonly", "yes"]
     ports:
-      - 6379:6379
+      - "6379:6379"
     volumes:
       - redis-data:/data
-    environment:
-      - REDIS_ARGS= --requirepass your_password_here --appendonly yes
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-your_password_here}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   database:
     image: postgres:17
-    ports: 
-      - 5432:5432
+    ports:
+      - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: root
       POSTGRES_DB: tenant_db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tenant_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  iam:
+    build:
+      context: .
+      dockerfile: iam/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:root@database:5432/tenant_db
+      REDIS_URL: redis://:your_password_here@redis:6379/
+      RUST_LOG: info
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  inbound:
+    build:
+      context: .
+      dockerfile: inbound/Dockerfile
+    environment:
+      REDIS_URL: redis://:your_password_here@redis:6379/
+      RUST_LOG: info
+    depends_on:
+      redis:
+        condition: service_healthy
+      iam:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  outbound:
+    build:
+      context: .
+      dockerfile: outbound/Dockerfile
+    environment:
+      REDIS_URL: redis://:your_password_here@redis:6379/
+      RUST_LOG: info
+    depends_on:
+      redis:
+        condition: service_healthy
+      iam:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
   redis-data:

@@ -1,14 +1,32 @@
+use std::println;
+
 use redis::{Script, aio::ConnectionManager};
 use serde_json::to_string;
 use uuid::Uuid;
 
 use crate::platform::projection::rebuild::TenantProjection;
 
-use iam_contracts::keys::tenant_projection_keys;
+use iam_contracts::keys::{ACTIVE_TOPIC_STREAMS, tenant_projection_keys};
 
 const REPLACE_PROJECTION_SCRIPT: &str = r#"
 local index_key = KEYS[1]
+local registry_key = KEYS[2]
 local raw = ARGV[1]
+local requested_tenant_id = ARGV[2]
+
+-- Remove previously active topics from the global registry.
+local old_topics_key =
+    'v1:tenant:' .. requested_tenant_id .. ':topics'
+
+local old_topic_ids = redis.call('HVALS', old_topics_key)
+
+for _, topic_id in ipairs(old_topic_ids) do
+    redis.call(
+        'SREM',
+        registry_key,
+        requested_tenant_id .. ':' .. topic_id
+    )
+end
 
 -- Delete all keys owned by the previous projection.
 local old_keys = redis.call('SMEMBERS', index_key)
@@ -40,19 +58,27 @@ redis.call(
     'version', '1'
 )
 
--- Only active topics should resolve for inbound publishing.
-for _, topic in ipairs(projection.topics) do
-    if topic.is_active then
-        redis.call('HSET', topics_key, topic.path, topic.id)
+-- Register topics only when both tenant and topic are active.
+if tenant.is_active then
+    for _, topic in ipairs(projection.topics) do
+        if topic.is_active then
+            redis.call('HSET', topics_key, topic.path, topic.id)
 
-        if #topic.destination_ids > 0 then
-            local sub_key =
-                'v1:tenant:' .. tenant_id .. ':sub:' .. topic.id
+            redis.call(
+                'SADD',
+                registry_key,
+                tenant_id .. ':' .. topic.id
+            )
 
-            redis.call('SADD', index_key, sub_key)
+            if #topic.destination_ids > 0 then
+                local sub_key =
+                    'v1:tenant:' .. tenant_id .. ':sub:' .. topic.id
 
-            for _, destination_id in ipairs(topic.destination_ids) do
-                redis.call('SADD', sub_key, destination_id)
+                redis.call('SADD', index_key, sub_key)
+
+                for _, destination_id in ipairs(topic.destination_ids) do
+                    redis.call('SADD', sub_key, destination_id)
+                end
             end
         end
     end
@@ -141,10 +167,13 @@ pub async fn write_projection(
     let index_key = tenant_projection_keys(tenant_id);
 
     let script = Script::new(REPLACE_PROJECTION_SCRIPT);
+    println!("{}", payload);
 
     let _: i32 = script
         .key(index_key)
+        .key(ACTIVE_TOPIC_STREAMS)
         .arg(payload)
+        .arg(tenant_id.to_string())
         .invoke_async(connection)
         .await?;
 
