@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO destinations\n                (name, kind, description, destination_url, delivery_timeout_seconds,\n                 tenant_id, created_by, last_updated_by)\n            VALUES ($1, $2::destination_kind, $3, $4, $5, $6, $7, $7)\n            RETURNING id, name, kind as \"kind: DestinationType\", description,\n                destination_url, delivery_timeout_seconds, is_active, tenant_id,\n                created_by, last_updated_by, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind: DestinationType",
+        "type_info": {
+          "Custom": {
+            "name": "destination_kind",
+            "kind": {
+              "Enum": [
+                "http"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "destination_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "delivery_timeout_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_updated_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "destination_kind",
+            "kind": {
+              "Enum": [
+                "http"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Varchar",
+        "Int4",
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "769de03c0bd013b6681b87408e9fd72f29f8c0763d9d725507410021fd4c10d3"
+}

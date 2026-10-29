@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, name, slug, is_active, created_at, updated_at\n            FROM tenants\n            WHERE id = $1\n            ",
+  "query": "\n            SELECT * FROM users\n            where id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -10,26 +10,36 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "username",
         "type_info": "Varchar"
       },
       {
         "ordinal": 2,
-        "name": "slug",
+        "name": "email",
         "type_info": "Varchar"
       },
       {
         "ordinal": 3,
+        "name": "full_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "password_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
         "name": "is_active",
         "type_info": "Bool"
       },
       {
-        "ordinal": 4,
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 7,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -45,8 +55,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "c6612a4827101a111b085cc4ac19f2f52edcc8f373e9afed602d65f3375e1668"
+  "hash": "cd455de48e4e205384cf9f53db8bd4a1dc42ada09df2b267f356ae6e1f946a95"
 }

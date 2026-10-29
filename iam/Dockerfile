@@ -1,6 +1,8 @@
 FROM rust:1-bookworm AS builder
 WORKDIR /app
 
+ENV SQLX_OFFLINE=true
+
 COPY . .
 RUN cargo build --release -p iam
 

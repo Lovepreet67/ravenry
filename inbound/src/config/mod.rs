@@ -4,6 +4,10 @@ pub mod server;
 
 use std::{fs, path::Path};
 
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
 use iam::IamConfig;
 use projection::ProjectionConfig;
 use serde::Deserialize;
@@ -19,8 +23,10 @@ pub struct Config {
 
 impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
-        let contents = fs::read_to_string(path)?;
-        let config = toml::from_str(&contents)?;
+        let config = Figment::new()
+            .merge(Toml::file(path))
+            .merge(Env::prefixed("APP_"))
+            .extract::<Self>()?;
 
         Ok(config)
     }

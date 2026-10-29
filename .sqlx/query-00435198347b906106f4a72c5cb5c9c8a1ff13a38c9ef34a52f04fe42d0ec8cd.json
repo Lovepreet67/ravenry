@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE destinations\n            SET name = $1, description = $2, kind = $3::destination_kind,\n                destination_url = $4, is_active = $5, delivery_timeout_seconds = $6,\n                last_updated_by = $7, updated_at = now()\n            WHERE id = $8 AND tenant_id = $9\n            RETURNING id, name, kind as \"kind: DestinationType\", description,\n                destination_url, delivery_timeout_seconds, is_active, tenant_id,\n                created_by, last_updated_by, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind: DestinationType",
+        "type_info": {
+          "Custom": {
+            "name": "destination_kind",
+            "kind": {
+              "Enum": [
+                "http"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "destination_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "delivery_timeout_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_active",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_updated_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        {
+          "Custom": {
+            "name": "destination_kind",
+            "kind": {
+              "Enum": [
+                "http"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Bool",
+        "Int4",
+        "Varchar",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "00435198347b906106f4a72c5cb5c9c8a1ff13a38c9ef34a52f04fe42d0ec8cd"
+}

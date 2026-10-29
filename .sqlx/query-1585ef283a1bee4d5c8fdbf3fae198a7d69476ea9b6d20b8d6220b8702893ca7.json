@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH membership as (INSERT INTO memberships (user_id, tenant_id, role_id) \n                VALUES ($1, $2, $3)\n                ON CONFLICT (user_id,tenant_id,role_id)\n                DO UPDATE SET ROLE_ID = $3\n                RETURNING user_id, tenant_id, role_id )\n                SELECT \n                roles.title as role_title,roles.slug as role_slug, roles.id as role_id,\n                tenants.name as tenant_name, tenants.slug as tenant_slug, tenants.id as tenant_id\n                FROM membership \n                INNER JOIN roles on roles.id = membership.role_id\n                INNER JOIN tenants on tenants.id = membership.tenant_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role_title",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "role_slug",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "role_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "tenant_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "tenant_slug",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1585ef283a1bee4d5c8fdbf3fae198a7d69476ea9b6d20b8d6220b8702893ca7"
+}

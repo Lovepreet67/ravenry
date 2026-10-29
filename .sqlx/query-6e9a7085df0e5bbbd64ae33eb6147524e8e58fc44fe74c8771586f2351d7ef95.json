@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE tenants\n            SET name = $1, slug = $2, is_active = $3\n            WHERE id = $4\n            RETURNING id, name, slug, is_active, created_at, updated_at\n            ",
+  "query": "\n            SELECT * FROM ROLES where slug = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -10,7 +10,7 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
+        "name": "title",
         "type_info": "Varchar"
       },
       {
@@ -20,36 +20,27 @@
       },
       {
         "ordinal": 3,
-        "name": "is_active",
-        "type_info": "Bool"
+        "name": "description",
+        "type_info": "Text"
       },
       {
         "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 5,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        "Bool",
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      false,
-      false,
+      true,
       false
     ]
   },
-  "hash": "8c0fa4d9012b4b9d34614897d98496f49cc13b57532bdd770c7de86dad42c4de"
+  "hash": "6e9a7085df0e5bbbd64ae33eb6147524e8e58fc44fe74c8771586f2351d7ef95"
 }

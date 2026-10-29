@@ -14,14 +14,9 @@ use crate::{
         topic::repository::DatabaseTopicRepository, user::repository::DatabaseUserRepository,
     },
     http::router,
-    platform::{
-        outbox::{handler, worker},
-        projection::resync,
-        redis_provider,
-    },
+    platform::{projection::resync, redis_provider},
     state::AppState,
 };
-use std::time::Duration;
 
 pub mod auth;
 pub mod config;
@@ -34,8 +29,8 @@ pub mod state;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    dotenvy::dotenv().ok();
-    let config = Config::from_env()?;
+    let config_path = std::env::var("CONFIG_FILE_PATH").unwrap_or(".env.toml".into());
+    let config = Config::load(config_path)?;
     let db_conn = PgPoolOptions::new()
         .max_connections(10)
         .after_connect(|_conn, _meta| {
