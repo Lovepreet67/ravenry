@@ -69,24 +69,51 @@ services:
     build:
       context: .
       dockerfile: inbound/Dockerfile
+    extra_hosts:
+    - "docker-host:192.168.65.254"
+    ports:
+      - ${INBOUND_SERVER_PORT}:${INBOUND_SERVER_PORT}
+    volumes:
+    - ./inbound/.env.toml:/app/config.toml:ro
     environment:
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      CONFIG_PATH: /app/config.toml
+      APP_SERVER__HOST: "0.0.0.0"
+      APP_SERVER__PORT: ${INBOUND_SERVER_PORT}
+      APP_IAM__PUBLIC_KEY_URL: http://host.docker.internal:3001/auth/public-key
+      APP_IAM__ISSUER: iam
+      APP_IAM__AUDIENCE: inbound
+      APP_IAM__publish_roles: '["admin"]'
+      APP_QUEUE__BACKEND: redis_stream
+      APP_QUEUE__URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      APP_PROJECTION__REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
       RUST_LOG: info
+
     depends_on:
       redis:
         condition: service_healthy
       iam:
         condition: service_started
-    ports:
-      - "8080:8080"
     restart: unless-stopped
 
   outbound:
     build:
       context: .
       dockerfile: outbound/Dockerfile
+    extra_hosts:
+    - "docker-host:192.168.65.254"
+    volumes:
+    - ./outbound/.env.toml:/app/config.toml:ro
     environment:
-      REDIS_URL: redis://:your_password_here@redis:6379/
+      CONFIG_PATH:  /app/config.toml
+      APP_SERVER__HOST: "0.0.0.0"
+      APP_SERVER__PORT: ${INBOUND_SERVER_PORT}
+      APP_IAM__PUBLIC_KEY_URL: http://host.docker.internal:3001/auth/public-key
+      APP_IAM__ISSUER: iam
+      APP_IAM__AUDIENCE: inbound
+      APP_IAM__publish_roles: '["admin"]'
+      APP_QUEUE__BACKEND: redis_stream
+      APP_QUEUE__URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      APP_PROJECTION__REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
       RUST_LOG: info
     depends_on:
       redis:

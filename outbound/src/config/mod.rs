@@ -4,6 +4,10 @@ pub mod server;
 
 pub mod worker;
 
+use figment::{
+    providers::{Env, Format, Toml},
+    Figment,
+};
 use worker::WorkerConfig;
 
 use std::{fs, path::Path};
@@ -24,8 +28,10 @@ pub struct Config {
 
 impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
-        let contents = fs::read_to_string(path)?;
-        let config = toml::from_str(&contents)?;
+        let config = Figment::new()
+            .merge(Toml::file(path))
+            .merge(Env::prefixed("APP_").split("__"))
+            .extract::<Self>()?;
 
         Ok(config)
     }

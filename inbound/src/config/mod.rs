@@ -25,7 +25,7 @@ impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, anyhow::Error> {
         let config = Figment::new()
             .merge(Toml::file(path))
-            .merge(Env::prefixed("APP_"))
+            .merge(Env::prefixed("APP_").split("__"))
             .extract::<Self>()?;
 
         Ok(config)
