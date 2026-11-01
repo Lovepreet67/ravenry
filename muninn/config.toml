@@ -1,0 +1,26 @@
+
+[database]
+url = "postgres://user:password@localhost:5432/ravenry"
+
+[redis]
+url = "redis://localhost:6379"
+
+# Everything below is optional and shown with defaults.
+[queue]
+consumer_prefix = "muninn"
+batch_size = 100
+block_ms = 2000
+reconcile_interval_secs = 30
+
+[inbox]
+batch_size = 100
+lease_secs = 60
+max_attempts = 10
+
+[workers]
+processors = 2
+shutdown_grace_secs = 30
+
+[observability]
+http_addr = "0.0.0.0:8080"
+gauge_interval_secs = 15

@@ -6,10 +6,8 @@ use streamforge::{message::Message, traits::Queue};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
-use crate::{
-    application::delivery::service::DeliveryService,
-    platform::topic_registry::{TopicRegistry, TopicStream},
-};
+use crate::application::delivery::service::DeliveryService;
+use iam_contracts::topic_registory::{TopicRegistry, TopicStream};
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {

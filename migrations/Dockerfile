@@ -13,5 +13,6 @@ WORKDIR /app
 
 COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
 COPY iam/migrations/ /app/migrations/
+COPY muninn/migrations/ /app/migrations/
 
 CMD ["sqlx", "migrate", "run", "--source", "/app/migrations"]

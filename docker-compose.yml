@@ -40,6 +40,25 @@ services:
       database:
         condition: service_healthy
     restart: "no"
+  muninn:
+    build:
+      context: .
+      dockerfile: muninn/Dockerfile
+    environment:
+      CONFIG_PATH: /app/config.toml
+      MUNINN_DATABASE__URL: postgres://user:password@database:5432/ravenry
+      MUNINN_REDIS__URL: redis://redis:6379
+      RUST_LOG: info
+    volumes:
+      - ./muninn/config.toml:/app/config.toml:ro
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   iam:
     build:

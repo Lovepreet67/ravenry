@@ -13,11 +13,9 @@ use crate::{
         worker::{OutboundWorker, WorkerConfig},
     },
     config::Config,
-    platform::{
-        projection_store::ProjectionStore,
-        topic_registry::{RedisTopicRegistry, TopicRegistry},
-    },
+    platform::projection_store::ProjectionStore,
 };
+use iam_contracts::topic_registory::{RedisTopicRegistry, TopicRegistry};
 use streamforge::factory::build_queue;
 
 #[tokio::main]

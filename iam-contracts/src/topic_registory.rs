@@ -1,7 +1,7 @@
+use crate::{keys::ACTIVE_TOPIC_STREAMS, streams::topic_events};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use iam_contracts::{keys::ACTIVE_TOPIC_STREAMS, streams::topic_events};
-use redis::{aio::ConnectionManager, AsyncCommands};
+use redis::{AsyncCommands, aio::ConnectionManager};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
