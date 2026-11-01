@@ -2,7 +2,7 @@ pub mod iam;
 pub mod projection;
 pub mod server;
 
-use std::{fs, path::Path};
+use std::path::Path;
 
 use figment::{
     providers::{Env, Format, Toml},

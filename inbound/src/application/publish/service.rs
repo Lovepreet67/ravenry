@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use streamforge::{message::Message, traits::Queue};
 use uuid::Uuid;
@@ -11,20 +11,11 @@ use crate::{
 pub struct PublishService {
     queue: Arc<dyn Queue>,
     projections: ProjectionStore,
-    publish_roles: Arc<HashSet<String>>,
 }
 
 impl PublishService {
-    pub fn new(
-        queue: Arc<dyn Queue>,
-        projections: ProjectionStore,
-        publish_roles: Arc<HashSet<String>>,
-    ) -> Self {
-        Self {
-            queue,
-            projections,
-            publish_roles,
-        }
+    pub fn new(queue: Arc<dyn Queue>, projections: ProjectionStore) -> Self {
+        Self { queue, projections }
     }
 
     pub async fn publish(
@@ -42,6 +33,7 @@ impl PublishService {
         let event = iam_contracts::events::PublishedEvent::new(
             tenant_id,
             topic_id,
+            command.destinations,
             command.topic_path,
             command.payload,
         );

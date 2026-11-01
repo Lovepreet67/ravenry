@@ -1,4 +1,3 @@
-use iam_contracts::auth::error::AuthError::{self, BadRequest, Unauthorized};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

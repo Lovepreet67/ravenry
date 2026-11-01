@@ -20,11 +20,7 @@ pub async fn publish(
     // Tenant context must come from a trusted, validated identity.
     // Replace this with the actual tenant context from your IAM contract.
     auth_context.assert_tenant_any_access(tenant_id, &state.config.iam.publish_roles)?;
-    let service = PublishService::new(
-        state.queue.clone(),
-        state.projections.clone(),
-        state.publish_roles.clone(),
-    );
+    let service = PublishService::new(state.queue.clone(), state.projections.clone());
 
     let message_id = service
         .publish(tenant_id, command)
