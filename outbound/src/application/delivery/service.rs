@@ -4,7 +4,6 @@ use tracing::info;
 
 use crate::{
     application::delivery::http_publisher::{DeliveryOutcome, HttpPublisher},
-    model::ResolvedDestination,
     platform::projection_store::ProjectionStore,
 };
 
@@ -23,11 +22,17 @@ impl DeliveryService {
     }
 
     pub async fn deliver_event(&self, event: &PublishedEvent) -> Result<Vec<DeliveryOutcome>> {
-        let destinations = self
-            .projections
-            .resolve_topic_destinations(event.tenant_id, event.topic_id)
-            .await
-            .context("failed to resolve topic destinations")?;
+        let destinations = if event.destinations.is_empty() {
+            self.projections
+                .resolve_topic_destinations(event.tenant_id, event.topic_id)
+                .await
+                .context("Failed to resolve topic destinations")?
+        } else {
+            self.projections
+                .get_destination_details(event.tenant_id, &event.destinations)
+                .await
+                .context("Failed to resolve the listed destinations")?
+        };
 
         let mut outcomes = Vec::with_capacity(destinations.len());
         info!("Destinations counts: {}", destinations.len());

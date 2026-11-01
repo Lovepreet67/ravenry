@@ -1,13 +1,18 @@
-use std::{collections::HashSet, print, println, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use iam_contracts::{events::PublishedEvent, streams::DELIVERY_RESULTS};
 use streamforge::{message::Message, traits::Queue};
-use tokio::time::sleep;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::application::delivery::service::DeliveryService;
-use iam_contracts::topic_registory::{TopicRegistry, TopicStream};
+use iam_contracts::topic_registory::TopicRegistry;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -18,19 +23,30 @@ pub struct WorkerConfig {
     pub idle_interval: Duration,
 }
 
-pub struct OutboundWorker {
-    queue: Arc<dyn Queue>,
-    registry: Arc<dyn TopicRegistry>,
-    delivery: DeliveryService,
-    config: WorkerConfig,
-    initialized_streams: HashSet<String>,
+pub struct OuboundWorker {
+    token: CancellationToken,
+    handle: JoinHandle<()>,
 }
 
-impl OutboundWorker {
+async fn sleep_or_cancel(token: &CancellationToken, d: Duration) {
+    tokio::select! {
+        _ = token.cancelled() => {}
+        _ = tokio::time::sleep(d) => {}
+    }
+}
+
+pub struct OutboundWorkerSupervisor {
+    queue: Arc<dyn Queue>,
+    registry: Arc<dyn TopicRegistry>,
+    delivery: Arc<DeliveryService>,
+    config: WorkerConfig,
+}
+
+impl OutboundWorkerSupervisor {
     pub fn new(
         queue: Arc<dyn Queue>,
         registry: Arc<dyn TopicRegistry>,
-        delivery: DeliveryService,
+        delivery: Arc<DeliveryService>,
         config: WorkerConfig,
     ) -> Self {
         Self {
@@ -38,161 +54,163 @@ impl OutboundWorker {
             registry,
             delivery,
             config,
-            initialized_streams: HashSet::new(),
         }
     }
-
-    pub async fn run(mut self) -> Result<()> {
-        println!("Inside run");
-        let mut next_refresh = tokio::time::Instant::now();
-
-        loop {
-            if tokio::time::Instant::now() >= next_refresh {
-                next_refresh = tokio::time::Instant::now() + self.config.registry_refresh_interval;
-
-                match self.registry.list_active().await {
-                    Ok(streams) => {
-                        for stream in streams {
-                            if let Err(err) = self.process_stream(&stream).await {
-                                error!(
-                                    tenant_id = %stream.tenant_id,
-                                    topic_id = %stream.topic_id,
-                                    error = %err,
-                                    "failed to process topic stream"
-                                );
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        error!(
-                            error = %err,
-                            "failed to refresh active-topic registry"
-                        );
-                    }
-                }
+    pub async fn run(self: Arc<Self>, shutdown: CancellationToken) {
+        let mut workers: HashMap<String, OuboundWorker> = HashMap::new();
+        while !shutdown.is_cancelled() {
+            match self.reconcile(&mut workers, &shutdown).await {
+                Ok(()) => {}
+                Err(e) => warn!( error = %e, "Outbound reconcile failed"),
             }
-
-            sleep(self.config.idle_interval).await;
+            sleep_or_cancel(&shutdown, self.config.registry_refresh_interval).await;
         }
     }
-
-    async fn process_stream(&mut self, stream: &TopicStream) -> Result<()> {
-        info!("Processing stream {:?}", stream);
-        let destination = stream.destination();
-
-        if self.initialized_streams.insert(destination.clone()) {
-            self.queue
-                .ensure_group(&destination, &self.config.consumer_group)
-                .await
-                .with_context(|| format!("failed to create consumer group for {destination}"))?;
-        }
-
-        let deliveries = self
-            .queue
-            .consume(
-                &destination,
-                &self.config.consumer_group,
-                &self.config.consumer_name,
-                self.config.batch_size,
-                0,
-            )
-            .await
-            .with_context(|| format!("failed to consume from {destination}"))?;
-
-        println!("delivery : {:?}", deliveries);
-        for delivery in deliveries {
-            let event: PublishedEvent = match serde_json::from_slice(&delivery.message.payload) {
-                Ok(event) => event,
-                Err(err) => {
-                    // Do not silently discard malformed messages.
-                    // Leave this entry pending for later recovery or
-                    // explicit dead-letter handling.
-                    warn!(
-                        stream = %destination,
-                        delivery_id = %delivery.delivery_id,
-                        error = %err,
-                        "invalid published event"
-                    );
-                    continue;
-                }
-            };
-
-            if event.tenant_id != stream.tenant_id || event.topic_id != stream.topic_id {
-                warn!(
-                    stream = %destination,
-                    delivery_id = %delivery.delivery_id,
-                    "event tenant/topic does not match its stream"
-                );
+    async fn reconcile(
+        self: &Arc<Self>,
+        workers: &mut HashMap<String, OuboundWorker>,
+        shutdown: &CancellationToken,
+    ) -> Result<()> {
+        let wanted = self
+            .registry
+            .list_active()
+            .await?
+            .into_iter()
+            .map(|x| x.destination())
+            .collect::<HashSet<_>>();
+        workers.retain(|name, w| {
+            if !wanted.contains(name) {
+                info!(stream = %name, "stream no longer active, stopping worker");
+                w.token.cancel();
+                return false;
+            }
+            if w.handle.is_finished() {
+                warn!(stream = %name, "woker exited unexpectedly, will restart");
+                return false;
+            }
+            true
+        });
+        for name in wanted {
+            if workers.contains_key(&name) {
                 continue;
             }
-
-            let outcomes = match self.delivery.deliver_event(&event).await {
-                Ok(outcomes) => outcomes,
-                Err(err) => {
-                    warn!(
-                        event_id = %event.event_id,
-                        error = %err,
-                        "event delivery processing failed"
-                    );
+            if let Err(e) = self
+                .queue
+                .ensure_group(&name, &self.config.consumer_group)
+                .await
+            {
+                warn!(stream = %name, error = %e, "ensure_group failed, retrying next tick");
+                continue;
+            }
+            info!(stream = %name, group = %&&self.config.consumer_group, "starting worker");
+            let token = shutdown.child_token();
+            let handle = tokio::spawn(self.clone().send_loop(name.clone(), token.clone()));
+            workers.insert(name, OuboundWorker { token, handle });
+        }
+        Ok(())
+    }
+    async fn send_loop(self: Arc<Self>, stream: String, token: CancellationToken) {
+        while !token.is_cancelled() {
+            let deliveries = match self
+                .queue
+                .consume(
+                    &stream,
+                    &self.config.consumer_group,
+                    &self.config.consumer_name,
+                    self.config.batch_size,
+                    0,
+                )
+                .await
+            {
+                Ok(val) => val,
+                Err(e) => {
+                    warn!( stream = %stream, error = %e, "Outbound consume failed");
+                    sleep_or_cancel(&token, Duration::from_secs(1)).await;
                     continue;
                 }
             };
-
-            // Publish each outcome before acknowledging the source event.
-            let mut results_published = true;
-
-            for outcome in outcomes {
-                let payload = match serde_json::to_vec(&outcome) {
-                    Ok(payload) => payload,
+            for delivery in deliveries {
+                let event: PublishedEvent = match serde_json::from_slice(&delivery.message.payload)
+                {
+                    Ok(event) => event,
                     Err(err) => {
+                        // Do not silently discard malformed messages.
+                        // Leave this entry pending for later recovery or
+                        // explicit dead-letter handling.
+                        warn!(
+                            stream = %stream,
+                            delivery_id = %delivery.delivery_id,
+                            error = %err,
+                            "invalid published event"
+                        );
+                        continue;
+                    }
+                };
+
+                let outcomes = match self.delivery.deliver_event(&event).await {
+                    Ok(outcomes) => outcomes,
+                    Err(err) => {
+                        warn!(
+                            event_id = %event.event_id,
+                            error = %err,
+                            "event delivery processing failed"
+                        );
+                        sleep_or_cancel(&token, Duration::from_millis(200)).await;
+                        continue;
+                    }
+                };
+
+                // Publish each outcome before acknowledging the source event.
+                let mut results_published = true;
+
+                for outcome in outcomes {
+                    let payload = match serde_json::to_vec(&outcome) {
+                        Ok(payload) => payload,
+                        Err(err) => {
+                            error!(
+                                event_id = %event.event_id,
+                                error = %err,
+                                "failed to serialize delivery outcome"
+                            );
+                            results_published = false;
+                            break;
+                        }
+                    };
+
+                    if let Err(err) = self
+                        .queue
+                        .publish(DELIVERY_RESULTS, Message::new(payload))
+                        .await
+                    {
                         error!(
                             event_id = %event.event_id,
                             error = %err,
-                            "failed to serialize delivery outcome"
+                            "failed to publish delivery outcome"
                         );
                         results_published = false;
                         break;
                     }
-                };
+                }
 
-                if let Err(err) = self
+                if !results_published {
+                    // Leave the source entry pending rather than lose outcomes.
+                    continue;
+                }
+
+                if let Err(e) = self
                     .queue
-                    .publish(DELIVERY_RESULTS, Message::new(payload))
+                    .ack(&stream, &self.config.consumer_group, &delivery.delivery_id)
                     .await
                 {
-                    error!(
-                        event_id = %event.event_id,
-                        error = %err,
-                        "failed to publish delivery outcome"
-                    );
-                    results_published = false;
-                    break;
+                    warn!( stream = %stream, error = %e, " Outbound ack failed, will be redelivered");
                 }
+
+                info!(
+                    event_id = %event.event_id,
+                    delivery_id = %delivery.delivery_id,
+                    "published event processed"
+                );
             }
-
-            if !results_published {
-                // Leave the source entry pending rather than lose outcomes.
-                continue;
-            }
-
-            self.queue
-                .ack(
-                    &destination,
-                    &self.config.consumer_group,
-                    &delivery.delivery_id,
-                )
-                .await
-                .with_context(|| {
-                    format!("failed to acknowledge delivery {}", delivery.delivery_id)
-                })?;
-
-            info!(
-                event_id = %event.event_id,
-                delivery_id = %delivery.delivery_id,
-                "published event processed"
-            );
         }
-
-        Ok(())
     }
 }

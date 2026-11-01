@@ -26,6 +26,49 @@ impl ProjectionStore {
             .await?;
         Ok(())
     }
+    pub async fn get_destination_details(
+        &self,
+        tenant_id: Uuid,
+        destination_ids: &Vec<Uuid>,
+    ) -> anyhow::Result<Vec<ResolvedDestination>> {
+        let mut connection = self.connection.clone();
+        // Round trip 2: fetch all destination hashes in one pipeline.
+        let mut pipeline = redis::pipe();
+
+        for destination_id in destination_ids {
+            pipeline
+                .cmd("HGETALL")
+                .arg(keys::destination(tenant_id, *destination_id));
+        }
+
+        let configs: Vec<HashMap<String, String>> = pipeline.query_async(&mut connection).await?;
+
+        let mut destinations = Vec::with_capacity(destination_ids.len());
+
+        for (destination_id, fields) in destination_ids.into_iter().zip(configs) {
+            if fields.is_empty() {
+                bail!(
+                    "destination projection missing \
+                 (tenant_id={tenant_id}, destination_id={destination_id})"
+                );
+            }
+
+            let config: DestinationProjection =
+                serde_json::from_value(serde_json::to_value(fields)?).with_context(|| {
+                    format!(
+                        "invalid destination projection \
+                         (tenant_id={tenant_id}, destination_id={destination_id})"
+                    )
+                })?;
+
+            destinations.push(ResolvedDestination {
+                id: *destination_id,
+                config,
+            });
+        }
+
+        Ok(destinations)
+    }
 
     pub async fn resolve_topic_destinations(
         &self,
@@ -54,42 +97,7 @@ impl ProjectionStore {
                 })
             })
             .collect::<anyhow::Result<_>>()?;
-
-        // Round trip 2: fetch all destination hashes in one pipeline.
-        let mut pipeline = redis::pipe();
-
-        for destination_id in &destination_ids {
-            pipeline
-                .cmd("HGETALL")
-                .arg(keys::destination(tenant_id, *destination_id));
-        }
-
-        let configs: Vec<HashMap<String, String>> = pipeline.query_async(&mut connection).await?;
-
-        let mut destinations = Vec::with_capacity(destination_ids.len());
-
-        for (destination_id, fields) in destination_ids.into_iter().zip(configs) {
-            if fields.is_empty() {
-                bail!(
-                    "destination projection missing \
-                 (tenant_id={tenant_id}, destination_id={destination_id})"
-                );
-            }
-
-            let config: DestinationProjection =
-                serde_json::from_value(serde_json::to_value(fields)?).with_context(|| {
-                    format!(
-                        "invalid destination projection \
-                         (tenant_id={tenant_id}, destination_id={destination_id})"
-                    )
-                })?;
-
-            destinations.push(ResolvedDestination {
-                id: destination_id,
-                config,
-            });
-        }
-
-        Ok(destinations)
+        self.get_destination_details(tenant_id, &destination_ids)
+            .await
     }
 }

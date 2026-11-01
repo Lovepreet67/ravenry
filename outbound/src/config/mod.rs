@@ -1,4 +1,3 @@
-pub mod iam;
 pub mod projection;
 pub mod server;
 
@@ -10,9 +9,8 @@ use figment::{
 };
 use worker::WorkerConfig;
 
-use std::{fs, path::Path};
+use std::path::Path;
 
-use iam::IamConfig;
 use projection::ProjectionConfig;
 use serde::Deserialize;
 use server::ServerConfig;
@@ -21,7 +19,6 @@ use server::ServerConfig;
 pub struct Config {
     pub server: ServerConfig,
     pub queue: streamforge::config::QueueConfig,
-    pub iam: IamConfig,
     pub projection: ProjectionConfig,
     pub worker: WorkerConfig,
 }
