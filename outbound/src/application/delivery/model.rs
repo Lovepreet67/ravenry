@@ -1,3 +1,4 @@
+use iam_contracts::delivery_outcome::DeliveryOutcome;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

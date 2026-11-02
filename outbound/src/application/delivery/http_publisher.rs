@@ -1,21 +1,11 @@
-use std::{println, time::Duration};
+use std::time::Duration;
 
-use reqwest::{Client, StatusCode};
-use serde::Serialize;
+use chrono::Utc;
+use iam_contracts::delivery_outcome::DeliveryOutcome;
+use reqwest::Client;
 use uuid::Uuid;
 
-use crate::model::ResolvedDestination;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DeliveryOutcome {
-    pub event_id: Uuid,
-    pub tenant_id: Uuid,
-    pub topic_id: Uuid,
-    pub destination_id: Uuid,
-    pub success: bool,
-    pub status_code: Option<u16>,
-    pub error: Option<String>,
-}
+use crate::{application::delivery::model::DeliveryRequest, model::ResolvedDestination};
 
 #[derive(Clone)]
 pub struct HttpPublisher {
@@ -34,46 +24,61 @@ impl HttpPublisher {
     pub async fn deliver(
         &self,
         destination: &ResolvedDestination,
-        event_id: Uuid,
-        tenant_id: Uuid,
-        topic_id: Uuid,
-        payload: &serde_json::Value,
+        request: &DeliveryRequest,
+        attempt_id: Uuid,
+        attempt: u32,
     ) -> DeliveryOutcome {
+        let attempted_at = Utc::now();
+
         let result = self
             .client
             .post(&destination.config.url)
             .timeout(Duration::from_secs(destination.config.timeout))
-            .json(payload)
+            .header("Idempotency-Key", request.delivery_id.to_string())
+            .json(&request.payload)
             .send()
             .await;
-        println!("{:?}", result);
 
         match result {
             Ok(response) => {
                 let status = response.status();
+                let success = status.is_success();
 
                 DeliveryOutcome {
-                    event_id,
-                    tenant_id,
-                    topic_id,
-                    destination_id: destination.id,
-                    success: status.is_success(),
+                    schema_version: 1,
+                    delivery_id: request.delivery_id,
+                    attempt_id,
+                    attempt,
+                    event_id: request.event_id,
+                    tenant_id: request.tenant_id,
+                    topic_id: request.topic_id,
+                    destination_id: request.destination_id,
+                    success,
+                    will_retry: false,
                     status_code: Some(status.as_u16()),
-                    error: if status.is_success() {
+                    error: if success {
                         None
                     } else {
                         Some(format!("destination returned HTTP {status}"))
                     },
+                    attempted_at,
                 }
             }
+
             Err(err) => DeliveryOutcome {
-                event_id,
-                tenant_id,
-                topic_id,
-                destination_id: destination.id,
+                schema_version: 1,
+                delivery_id: request.delivery_id,
+                attempt_id,
+                attempt,
+                event_id: request.event_id,
+                tenant_id: request.tenant_id,
+                topic_id: request.topic_id,
+                destination_id: request.destination_id,
                 success: false,
-                status_code: err.status().map(|status: StatusCode| status.as_u16()),
+                will_retry: false,
+                status_code: err.status().map(|status| status.as_u16()),
                 error: Some(err.to_string()),
+                attempted_at,
             },
         }
     }

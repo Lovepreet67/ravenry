@@ -2,21 +2,30 @@ pub mod application;
 pub mod config;
 pub mod model;
 pub mod platform;
+
 use std::{env, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
-use tracing::info;
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info};
+
+use iam_contracts::topic_registory::{RedisTopicRegistry, TopicRegistry};
+
+use streamforge::factory::build_queue;
 
 use crate::{
     application::{
-        delivery::{http_publisher::HttpPublisher, service::DeliveryService},
-        worker::{OutboundWorker, WorkerConfig},
+        delivery::{http_publisher::HttpPublisher, retry::RetryPolicy, service::DeliveryService},
+        worker::{
+            dlq_publisher::DlqPublisher,
+            outbound_worker::{OutboundWorkerSupervisor, WorkerConfig as OutboundWorkerConfig},
+            retry_worker::RetryWorker,
+            supervisor::WorkerSupervisor,
+        },
     },
     config::Config,
-    platform::projection_store::ProjectionStore,
+    platform::{projection_store::ProjectionStore, redis::delivery_store::DeliveryStore},
 };
-use iam_contracts::topic_registory::{RedisTopicRegistry, TopicRegistry};
-use streamforge::factory::build_queue;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,49 +36,152 @@ async fn main() -> Result<()> {
     let config = Config::load(&config_path)
         .with_context(|| format!("failed to load config from {config_path}"))?;
 
-    info!(config_path = %config_path, "configuration loaded");
+    info!(config_path = %config_path, "Configuration loaded");
 
-    // Initialize the queue backend.
-    let queue = build_queue(&config.queue).await?;
+    // ---------------------------------------------------------
+    // Infrastructure
+    // ---------------------------------------------------------
 
-    // Connect to Redis-backed projections and topic registry.
-    let projections = ProjectionStore::connect(&config.projection.redis_url)
+    let queue = build_queue(&config.queue)
+        .await
+        .context("failed to initialize queue backend")?;
+
+    let redis_url = &config.projection.redis_url;
+
+    let projections = ProjectionStore::connect(redis_url)
         .await
         .context("failed to connect to projection store")?;
 
+    let delivery_store = DeliveryStore::connect(redis_url)
+        .await
+        .context("failed to connect to delivery store")?;
+
     let registry: Arc<dyn TopicRegistry> = Arc::new(
-        RedisTopicRegistry::connect(&config.projection.redis_url)
+        RedisTopicRegistry::connect(redis_url)
             .await
             .context("failed to connect to topic registry")?,
     );
 
-    // Reuse one HTTP client for all destination deliveries.
+    projections
+        .health_check()
+        .await
+        .context("projection Redis health check failed")?;
+
+    delivery_store
+        .health_check()
+        .await
+        .context("delivery Redis health check failed")?;
+
+    // ---------------------------------------------------------
+    // Delivery application
+    // ---------------------------------------------------------
+
     let publisher = HttpPublisher::new().context("failed to initialize HTTP publisher")?;
 
-    let delivery = DeliveryService::new(projections, publisher);
+    let retry_policy = RetryPolicy::default();
 
-    let worker_config = WorkerConfig {
-        consumer_group: config.worker.consumer_group,
-        consumer_name: config.worker.consumer_name,
+    let delivery_service = DeliveryService::new(
+        projections.clone(),
+        delivery_store.clone(),
+        publisher,
+        retry_policy,
+    );
+
+    // ---------------------------------------------------------
+    // Event consumer
+    // ---------------------------------------------------------
+
+    let outbound_worker_config = OutboundWorkerConfig {
+        consumer_group: config.worker.consumer_group.clone(),
+        consumer_name: config.worker.consumer_name.clone(),
         batch_size: config.worker.batch_size,
         registry_refresh_interval: Duration::from_secs(
             config.worker.registry_refresh_interval_secs,
         ),
         idle_interval: Duration::from_millis(config.worker.idle_interval_ms),
+        workers_per_stream: 1,
     };
 
-    let worker = OutboundWorker::new(queue, registry, delivery, worker_config);
+    let outbound_worker = OutboundWorkerSupervisor::new(
+        queue.clone(),
+        registry.clone(),
+        Arc::new(delivery_service.clone()),
+        outbound_worker_config,
+    );
 
-    info!("starting outbound worker");
+    // ---------------------------------------------------------
+    // Retry worker
+    // ---------------------------------------------------------
 
-    worker
-        .run()
-        .await
-        .context("outbound worker stopped with an error")?;
+    let retry_worker = RetryWorker::new(
+        registry.clone(),
+        projections.clone(),
+        delivery_store.clone(),
+        delivery_service,
+        config.worker.batch_size,
+    );
+
+    // ---------------------------------------------------------
+    // DLQ recovery publisher
+    // ---------------------------------------------------------
+
+    let dlq_publisher = DlqPublisher::new(delivery_store, queue, config.worker.batch_size);
+
+    // ---------------------------------------------------------
+    // Background worker supervisor
+    // ---------------------------------------------------------
+
+    let supervisor = WorkerSupervisor::new(
+        retry_worker,
+        dlq_publisher,
+        Duration::from_secs(config.worker.retry_poll_interval_secs),
+        Duration::from_secs(config.worker.dlq_poll_interval_secs),
+    );
+
+    // ---------------------------------------------------------
+    // Run service
+    // ---------------------------------------------------------
+
+    info!("Starting outbound service");
+    let token = CancellationToken::new();
+
+    let mut outbound_task = tokio::spawn(async move { Arc::new(outbound_worker).run(token).await });
+
+    let mut supervisor_task = tokio::spawn(async move { supervisor.run().await });
+
+    tokio::select! {
+        result = &mut outbound_task => {
+            supervisor_task.abort();
+
+            result.context("outbound worker task panicked")?
+
+        }
+
+        result = &mut supervisor_task => {
+            outbound_task.abort();
+
+            result.context("background worker supervisor panicked")?;
+            error!("Background worker supervisor unexpectedly stopped");
+        }
+
+        signal = tokio::signal::ctrl_c() => {
+            signal.context("failed to listen for shutdown signal")?;
+
+            info!("Shutdown signal received");
+
+            outbound_task.abort();
+            supervisor_task.abort();
+
+            let _ = outbound_task.await;
+            let _ = supervisor_task.await;
+        }
+    }
+
+    info!("Outbound service stopped");
 
     Ok(())
 }
 
 fn init_tracing() {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::fmt().with_target(true).init();
 }

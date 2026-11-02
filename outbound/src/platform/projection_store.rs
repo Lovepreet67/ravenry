@@ -29,7 +29,7 @@ impl ProjectionStore {
     pub async fn get_destination_details(
         &self,
         tenant_id: Uuid,
-        destination_ids: &Vec<Uuid>,
+        destination_ids: &[Uuid],
     ) -> anyhow::Result<Vec<ResolvedDestination>> {
         let mut connection = self.connection.clone();
         // Round trip 2: fetch all destination hashes in one pipeline.

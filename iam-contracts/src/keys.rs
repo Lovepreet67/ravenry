@@ -51,3 +51,61 @@ pub fn tenant_projection_keys(tenant_id: Uuid) -> String {
 
 /// Registry of active tenant/topic pairs available for event consumption.
 pub const ACTIVE_TOPIC_STREAMS: &str = "v1:registry:active-topic-streams";
+
+/// Redis hash containing the current state of a delivery.
+///
+/// Fields:
+/// - `status`
+/// - `attempts`
+/// - `attempt_id`
+/// - `lease_until`
+/// - `last_error`
+/// - `next_attempt_at`
+pub fn delivery_state(tenant_id: Uuid, destination_id: Uuid, delivery_id: Uuid) -> String {
+    return format!(
+        "{KEY_PREFIX}:tenant:{tenant_id}:dest:{destination_id}:delivery:{delivery_id}:state"
+    );
+}
+
+/// Redis string containing the serialized request needed for retries.
+pub fn delivery_request(tenant_id: Uuid, destination_id: Uuid, delivery_id: Uuid) -> String {
+    return format!(
+        "{KEY_PREFIX}:tenant:{tenant_id}:dest:{destination_id}:delivery:{delivery_id}:request"
+    );
+}
+
+/// Sorted set of scheduled retries for a destination.
+///
+/// Score: next attempt timestamp in milliseconds.
+/// Member: delivery_id.
+pub fn destination_retry(tenant_id: Uuid, destination_id: Uuid) -> String {
+    return format!("{KEY_PREFIX}:tenant:{tenant_id}:dest:{destination_id}:retry");
+}
+
+/// Stream containing terminally failed deliveries for a destination.
+pub fn destination_dlq(tenant_id: Uuid, destination_id: Uuid) -> String {
+    return format!("{KEY_PREFIX}:tenant:{tenant_id}:dest:{destination_id}:dlq");
+}
+
+/// Redis hash containing DLQ messages that still need to be
+/// published to the StreamForge DLQ queue.
+///
+/// Field: delivery_id
+/// Value: serialized DlqMessage
+pub fn destination_dlq_pending(tenant_id: Uuid, destination_id: Uuid) -> String {
+    return format!("{KEY_PREFIX}:tenant:{tenant_id}:dest:{destination_id}:dlq-pending");
+}
+
+/// Prefix used by Lua scripts to construct per-delivery state keys.
+pub fn destination_delivery_state_prefix(tenant_id: Uuid, destination_id: Uuid) -> String {
+    return format!("{KEY_PREFIX}:tenant:{tenant_id}:dest:{destination_id}:delivery:");
+}
+
+/// Set containing destinations that have pending DLQ messages.
+///
+/// Members use the format: tenant_id:destination_id
+pub const PENDING_DLQ_DESTINATIONS: &str = "v1:registry:pending-dlq-destinations";
+
+pub fn pending_dlq_destination(tenant_id: Uuid, destination_id: Uuid) -> String {
+    return format!("{tenant_id}:{destination_id}");
+}

@@ -10,3 +10,8 @@ pub fn topic_events(tenant_id: Uuid, topic_id: Uuid) -> String {
 
 /// Stream for delivery results produced by outbound workers.
 pub const DELIVERY_RESULTS: &str = "v1:delivery-results";
+
+/// DLQ stream for a specific tenant and destination.
+pub fn destination_dlq(tenant_id: Uuid, destination_id: Uuid) -> String {
+    return format!("v1:tenant:{tenant_id}:destination:{destination_id}:dlq");
+}
