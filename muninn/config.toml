@@ -1,12 +1,6 @@
-
-[database]
-url = "postgres://user:password@localhost:5432/ravenry"
-
-[redis]
-url = "redis://localhost:6379"
-
 # Everything below is optional and shown with defaults.
 [queue]
+backend = "redis_stream"
 consumer_prefix = "muninn"
 batch_size = 100
 block_ms = 2000

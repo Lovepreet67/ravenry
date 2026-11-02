@@ -46,8 +46,9 @@ services:
       dockerfile: muninn/Dockerfile
     environment:
       CONFIG_PATH: /app/config.toml
-      MUNINN_DATABASE__URL: postgres://user:password@database:5432/ravenry
-      MUNINN_REDIS__URL: redis://redis:6379
+      MUNINN_DATABASE__URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      MUNINN_QUEUE__URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      MUNINN_REDIS__URL: redis://:${REDIS_PASSWORD}@redis:6379/
       RUST_LOG: info
     volumes:
       - ./muninn/config.toml:/app/config.toml:ro
