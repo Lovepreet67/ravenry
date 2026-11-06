@@ -29,18 +29,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cfg = Config::load()?;
 
-    // `muninn migrate`: used by the dedicated migration container only.
-    // The normal service never migrates at startup.
-    if std::env::args().nth(1).as_deref() == Some("migrate") {
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&cfg.database.url)
-            .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
-        info!("migrations applied");
-        return Ok(());
-    }
-
     let prom = metrics::install();
 
     // Fail fast: if a dependency is down at startup, exit and let the
