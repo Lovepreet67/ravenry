@@ -3,7 +3,7 @@ pub mod config;
 pub mod model;
 pub mod platform;
 
-use std::{env, sync::Arc, time::Duration};
+use std::{env, sync::Arc};
 
 use anyhow::{Context, Result};
 use tokio_util::sync::CancellationToken;
@@ -16,12 +16,7 @@ use streamforge::factory::build_queue;
 use crate::{
     application::{
         delivery::{http_publisher::HttpPublisher, retry::RetryPolicy, service::DeliveryService},
-        worker::{
-            dlq_publisher::DlqPublisher,
-            outbound_worker::{OutboundWorkerSupervisor, WorkerConfig as OutboundWorkerConfig},
-            retry_worker::RetryWorker,
-            supervisor::WorkerSupervisor,
-        },
+        worker::supervisor::WorkerSupervisor,
     },
     config::Config,
     platform::{projection_store::ProjectionStore, redis::delivery_store::DeliveryStore},
@@ -48,13 +43,17 @@ async fn main() -> Result<()> {
 
     let redis_url = &config.projection.redis_url;
 
-    let projections = ProjectionStore::connect(redis_url)
-        .await
-        .context("failed to connect to projection store")?;
+    let projections = Arc::new(
+        ProjectionStore::connect(redis_url)
+            .await
+            .context("failed to connect to projection store")?,
+    );
 
-    let delivery_store = DeliveryStore::connect(redis_url)
-        .await
-        .context("failed to connect to delivery store")?;
+    let delivery_store = Arc::new(
+        DeliveryStore::connect(redis_url)
+            .await
+            .context("failed to connect to delivery store")?,
+    );
 
     let registry: Arc<dyn TopicRegistry> = Arc::new(
         RedisTopicRegistry::connect(redis_url)
@@ -76,89 +75,40 @@ async fn main() -> Result<()> {
     // Delivery application
     // ---------------------------------------------------------
 
-    let publisher = HttpPublisher::new().context("failed to initialize HTTP publisher")?;
+    let publisher = Arc::new(HttpPublisher::new().context("failed to initialize HTTP publisher")?);
 
-    let retry_policy = RetryPolicy::default();
+    let retry_policy = Arc::new(RetryPolicy::default());
 
-    let delivery_service = DeliveryService::new(
+    let delivery_service = Arc::new(DeliveryService::new(
         projections.clone(),
         delivery_store.clone(),
-        publisher,
-        retry_policy,
-    );
+        publisher.clone(),
+        retry_policy.clone(),
+    ));
 
     // ---------------------------------------------------------
-    // Event consumer
-    // ---------------------------------------------------------
 
-    let outbound_worker_config = OutboundWorkerConfig {
-        consumer_group: config.worker.consumer_group.clone(),
-        consumer_name: config.worker.consumer_name.clone(),
-        batch_size: config.worker.batch_size,
-        registry_refresh_interval: Duration::from_secs(
-            config.worker.registry_refresh_interval_secs,
-        ),
-        idle_interval: Duration::from_millis(config.worker.idle_interval_ms),
-        workers_per_stream: 1,
-    };
-
-    let outbound_worker = OutboundWorkerSupervisor::new(
+    let shutdown_token = CancellationToken::new();
+    let supervisor = Arc::new(WorkerSupervisor::new(
+        Arc::new(config.worker.into()),
+        registry.clone(),
+        delivery_service.clone(),
+        projections.clone(),
+        delivery_store.clone(),
         queue.clone(),
-        registry.clone(),
-        Arc::new(delivery_service.clone()),
-        outbound_worker_config,
-    );
-
-    // ---------------------------------------------------------
-    // Retry worker
-    // ---------------------------------------------------------
-
-    let retry_worker = RetryWorker::new(
-        registry.clone(),
-        projections.clone(),
-        delivery_store.clone(),
-        delivery_service,
-        config.worker.batch_size,
-    );
-
-    // ---------------------------------------------------------
-    // DLQ recovery publisher
-    // ---------------------------------------------------------
-
-    let dlq_publisher = DlqPublisher::new(delivery_store, queue, config.worker.batch_size);
-
-    // ---------------------------------------------------------
-    // Background worker supervisor
-    // ---------------------------------------------------------
-
-    let supervisor = WorkerSupervisor::new(
-        retry_worker,
-        dlq_publisher,
-        Duration::from_secs(config.worker.retry_poll_interval_secs),
-        Duration::from_secs(config.worker.dlq_poll_interval_secs),
-    );
+        shutdown_token,
+    ));
 
     // ---------------------------------------------------------
     // Run service
     // ---------------------------------------------------------
 
     info!("Starting outbound service");
-    let token = CancellationToken::new();
-
-    let mut outbound_task = tokio::spawn(async move { Arc::new(outbound_worker).run(token).await });
 
     let mut supervisor_task = tokio::spawn(async move { supervisor.run().await });
 
     tokio::select! {
-        result = &mut outbound_task => {
-            supervisor_task.abort();
-
-            result.context("outbound worker task panicked")?
-
-        }
-
         result = &mut supervisor_task => {
-            outbound_task.abort();
 
             result.context("background worker supervisor panicked")?;
             error!("Background worker supervisor unexpectedly stopped");
@@ -169,10 +119,8 @@ async fn main() -> Result<()> {
 
             info!("Shutdown signal received");
 
-            outbound_task.abort();
             supervisor_task.abort();
 
-            let _ = outbound_task.await;
             let _ = supervisor_task.await;
         }
     }

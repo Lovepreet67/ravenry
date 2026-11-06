@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
 use iam_contracts::events::PublishedEvent;
@@ -20,18 +20,18 @@ const DELIVERY_LEASE: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct DeliveryService {
-    projections: ProjectionStore,
-    store: DeliveryStore,
-    publisher: HttpPublisher,
-    retry_policy: RetryPolicy,
+    projections: Arc<ProjectionStore>,
+    store: Arc<DeliveryStore>,
+    publisher: Arc<HttpPublisher>,
+    retry_policy: Arc<RetryPolicy>,
 }
 
 impl DeliveryService {
     pub fn new(
-        projections: ProjectionStore,
-        store: DeliveryStore,
-        publisher: HttpPublisher,
-        retry_policy: RetryPolicy,
+        projections: Arc<ProjectionStore>,
+        store: Arc<DeliveryStore>,
+        publisher: Arc<HttpPublisher>,
+        retry_policy: Arc<RetryPolicy>,
     ) -> Self {
         Self {
             projections,
