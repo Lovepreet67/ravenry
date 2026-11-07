@@ -84,7 +84,26 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
-
+  huginn:
+    build:
+      context: .
+      dockerfile: huginn/Dockerfile
+    environment:
+      CONFIG_PATH: /app/config.toml
+      # Secrets come from the environment, never from the image.
+      HUGINN_DATABASE__URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      HUGINN_IAM_CONFIG__PUBLIC_KEY_URL: http://@iam:3001/auth/public-key
+      RUST_LOG: info
+    volumes:
+      - ./huginn/config.toml:/app/config.toml:ro
+    ports:
+      - "8081:8081"
+    depends_on:
+      database:
+        condition: service_healthy
+      iam:
+        condition: service_started
+    restart: unless-stopped
   inbound:
     build:
       context: .

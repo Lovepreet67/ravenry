@@ -6,5 +6,5 @@ members = [
     "iam",
     "iam-contracts",
     "muninn",
-    "streamforge",
+    "streamforge", "huginn",
 ]

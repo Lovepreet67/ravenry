@@ -1,0 +1,15 @@
+[database]
+# Override with HUGINN_DATABASE__URL in real environments.
+url = "postgres://huginn_ro:password@localhost:5432/ravenry"
+max_connections = 10
+statement_timeout_ms = 5000
+
+[server]
+addr = "0.0.0.0:8081"
+
+[access]
+payload_roles = ["owner", "admin"]
+
+[iam_config]
+http_timeout_secs = 5
+iam_cache_ttl_secs = 60
