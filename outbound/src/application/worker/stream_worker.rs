@@ -47,12 +47,12 @@ impl StreamWorker {
                         match result {
                             Ok(deliveries) => deliveries,
                             Err(err) => {
-                                // warn!(
-                                //     stream = %stream,
-                                //     consumer = %consumer_name,
-                                //     error = %err,
-                                //     "Consume failed"
-                                // );
+                                warn!(
+                                    stream = %stream,
+                                    consumer = %consumer_name,
+                                    error = %err,
+                                    "Consume failed"
+                                );
 
                                 sleep_or_cancel(
                                     &token,

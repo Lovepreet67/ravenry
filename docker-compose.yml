@@ -160,6 +160,22 @@ services:
       iam:
         condition: service_started
     restart: unless-stopped
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_IAM_API_BASE_URL: ${VITE_IAM_API_BASE_URL:-http://localhost:3001}
+        VITE_HUGINN_API_BASE_URL: ${VITE_HUGINN_API_BASE_URL:-http://localhost:8081}
+    ports:
+      - "8080:80"
+    depends_on:
+      iam:
+        condition: service_started
+      huginn:
+        condition: service_started
+    restart: unless-stopped
+
 
 volumes:
   redis-data:
