@@ -165,10 +165,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_IAM_API_BASE_URL: ${VITE_IAM_API_BASE_URL:-http://localhost:3001}
-        VITE_HUGINN_API_BASE_URL: ${VITE_HUGINN_API_BASE_URL:-http://localhost:8081}
+        VITE_IAM_API_BASE_URL: /iam
+        VITE_HUGINN_API_BASE_URL: /huginn
     ports:
       - "8080:80"
+    environment:
+      IAM_UPSTREAM_PORT: 3001
+      HUGINN_UPSTREAM_PORT: 8081
     depends_on:
       iam:
         condition: service_started
