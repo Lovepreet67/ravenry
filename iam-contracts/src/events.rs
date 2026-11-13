@@ -32,7 +32,7 @@ pub struct PublishedEvent {
     pub topic_path: String,
     // This field is for the case in which use user wants to send the event to only specified destinations
     // by default it will be sent to  all the linked destination.
-    pub destinations: Vec<Uuid>,
+    pub destinations: Option<Vec<Uuid>>,
     pub payload: Value,
 }
 
@@ -40,7 +40,7 @@ impl PublishedEvent {
     pub fn new(
         tenant_id: Uuid,
         topic_id: Uuid,
-        destinations: Vec<Uuid>,
+        destinations: Option<Vec<Uuid>>,
         topic_path: String,
         payload: Value,
     ) -> Self {

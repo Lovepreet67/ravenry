@@ -23,6 +23,7 @@ impl PublishService {
         tenant_id: Uuid,
         command: PublishCommand,
     ) -> Result<String, PublishError> {
+        command.validate()?;
         let topic_id = self
             .projections
             .resolve_topic_id(tenant_id, &command.topic_path)

@@ -36,7 +36,7 @@ mod tests {
         PublishedEvent::new(
             Uuid::new_v4(),
             Uuid::new_v4(),
-            Vec::new(),
+            None,
             "orders/created".into(),
             serde_json::json!({ "order": 1 }),
         )

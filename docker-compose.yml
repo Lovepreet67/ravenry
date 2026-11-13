@@ -168,7 +168,7 @@ services:
         VITE_IAM_API_BASE_URL: /iam
         VITE_HUGINN_API_BASE_URL: /huginn
     ports:
-      - "8080:80"
+      - "8082:80"
     environment:
       IAM_UPSTREAM_PORT: 3001
       HUGINN_UPSTREAM_PORT: 8081

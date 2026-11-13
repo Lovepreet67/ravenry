@@ -47,14 +47,15 @@ impl DeliveryService {
     /// Reprocessing the same event therefore cannot create a new logical
     /// delivery for the same destination.
     pub async fn deliver_event(&self, event: &PublishedEvent) -> anyhow::Result<()> {
-        let destinations = if event.destinations.is_empty() {
+        let destinations = if event.destinations.is_none() {
             self.projections
                 .resolve_topic_destinations(event.tenant_id, event.topic_id)
                 .await
                 .context("failed to resolve topic destinations")?
         } else {
+            // UNWRAP_SAFETY:  we checked already if the destinations are null
             self.projections
-                .get_destination_details(event.tenant_id, &event.destinations)
+                .get_destination_details(event.tenant_id, &event.destinations.as_ref().unwrap())
                 .await
                 .context("failed to resolve the listed destinations")?
         };
