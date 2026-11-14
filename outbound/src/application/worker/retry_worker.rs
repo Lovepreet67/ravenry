@@ -31,6 +31,7 @@ impl RetryWorker {
         let handle = tokio::spawn(async move {
             let poll_interval = Duration::from_millis(config.poll_interval_millis);
             while !shutdown_token.is_cancelled() {
+                sleep_or_cancel(&shutdown_token, poll_interval).await;
                 let delivery_ids = match store
                     .claim_due_retries(tenant_id, destination_id, config.batch_size)
                     .await
@@ -90,7 +91,6 @@ impl RetryWorker {
                             );
                         }
                     }
-                    sleep_or_cancel(&shutdown_token, poll_interval).await;
                 }
             }
         });

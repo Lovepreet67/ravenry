@@ -29,6 +29,8 @@ export function EditDestinationPage() {
         kind: values.kind,
         destination_url: values.destination_url.trim(),
         delivery_timeout_seconds: values.delivery_timeout_seconds,
+        retry_delay_ms: values.retry_delay_ms,
+        max_attempts: values.max_attempts,
         is_active: values.is_active,
       }),
     onSuccess: async () => {
@@ -116,6 +118,8 @@ export function EditDestinationPage() {
             kind: destination.kind,
             destination_url: destination.destination_url,
             delivery_timeout_seconds: destination.delivery_timeout_seconds,
+            retry_delay_ms: destination.retry_delay_ms,
+            max_attempts: destination.max_attempts,
             is_active: destination.is_active,
           }}
           onSubmit={handleSubmit}

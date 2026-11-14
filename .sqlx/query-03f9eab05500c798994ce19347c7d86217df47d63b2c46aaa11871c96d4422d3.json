@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE destinations\n            SET name = $1, description = $2, kind = $3::destination_kind,\n                destination_url = $4, is_active = $5, delivery_timeout_seconds = $6,\n                last_updated_by = $7, updated_at = now()\n            WHERE id = $8 AND tenant_id = $9\n            RETURNING id, name, kind as \"kind: DestinationType\", description,\n                destination_url, delivery_timeout_seconds, is_active, tenant_id,\n                created_by, last_updated_by, created_at, updated_at\n            ",
+  "query": "UPDATE destinations\n            SET name = $1, description = $2, kind = $3::destination_kind,\n                destination_url = $4, is_active = $5, delivery_timeout_seconds = $6,\n                max_attempts = $7, retry_delay_ms= $8,\n                last_updated_by = $9, updated_at = now()\n            WHERE id = $10 AND tenant_id = $11\n            RETURNING id, name, kind as \"kind: DestinationType\", description,\n                destination_url, delivery_timeout_seconds, is_active, tenant_id,\n                retry_delay_ms, max_attempts,\n                created_by, last_updated_by, created_at, updated_at\n            ",
   "describe": {
     "columns": [
       {
@@ -54,21 +54,31 @@
       },
       {
         "ordinal": 8,
+        "name": "retry_delay_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
         "name": "created_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "last_updated_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -90,6 +100,8 @@
         "Varchar",
         "Bool",
         "Int4",
+        "Int4",
+        "Int4",
         "Varchar",
         "Uuid",
         "Uuid"
@@ -107,8 +119,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "00435198347b906106f4a72c5cb5c9c8a1ff13a38c9ef34a52f04fe42d0ec8cd"
+  "hash": "03f9eab05500c798994ce19347c7d86217df47d63b2c46aaa11871c96d4422d3"
 }

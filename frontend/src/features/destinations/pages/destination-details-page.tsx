@@ -73,11 +73,10 @@ export function DestinationDetailsPage() {
             Destination details and delivery configuration.
           </p>
           <span
-            className={`mt-3 inline-flex rounded-full border px-2.5 py-1 text-xs ${
-              destination.is_active
-                ? "border-emerald-500/30 text-emerald-400"
-                : "border-border text-muted-foreground"
-            }`}
+            className={`mt-3 inline-flex rounded-full border px-2.5 py-1 text-xs ${destination.is_active
+              ? "border-emerald-500/30 text-emerald-400"
+              : "border-border text-muted-foreground"
+              }`}
           >
             {destination.is_active ? "Active" : "Inactive"}
           </span>
@@ -125,6 +124,18 @@ export function DestinationDetailsPage() {
             <p className="text-xs text-muted-foreground">Delivery timeout</p>
             <p className="mt-1 text-sm font-medium">
               {destination.delivery_timeout_seconds} seconds
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Retry delay</p>
+            <p className="mt-1 text-sm font-medium">
+              {destination.retry_delay_ms} ms
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Max Attempts</p>
+            <p className="mt-1 text-sm font-medium">
+              {destination.max_attempts}
             </p>
           </div>
 

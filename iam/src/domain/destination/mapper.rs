@@ -13,6 +13,8 @@ impl model::NewDestination {
             tenant_id: tenant_id,
             destination_url: req.destination_url,
             delivery_timeout_seconds: req.delivery_timeout_seconds,
+            retry_delay_ms: req.retry_delay_ms,
+            max_attempts: req.max_attempts,
             created_by: created_by.into(),
         }
     }
@@ -27,6 +29,8 @@ impl From<model::Destination> for dto::Destination {
             destination_url: value.destination_url,
             is_active: value.is_active,
             delivery_timeout_seconds: value.delivery_timeout_seconds,
+            retry_delay_ms: value.retry_delay_ms,
+            max_attempts: value.max_attempts,
             created_by: value.created_by,
             last_updated_by: value.last_updated_by,
             created_at: value.created_at,
@@ -58,6 +62,12 @@ impl model::Destination {
         }
         if let Some(is_active) = update_req.is_active {
             existing.is_active = is_active;
+        }
+        if let Some(retry_delay_ms) = update_req.retry_delay_ms {
+            existing.retry_delay_ms = retry_delay_ms;
+        }
+        if let Some(max_attempts) = update_req.max_attempts {
+            existing.max_attempts = max_attempts;
         }
 
         existing

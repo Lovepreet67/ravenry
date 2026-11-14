@@ -16,7 +16,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
     application::{
-        delivery::{http_publisher::HttpPublisher, retry::RetryPolicy, service::DeliveryService},
+        delivery::{http_publisher::HttpPublisher, service::DeliveryService},
         worker::supervisor::WorkerSupervisor,
     },
     config::Config,
@@ -75,13 +75,10 @@ async fn main() -> Result<()> {
 
     let publisher = Arc::new(HttpPublisher::new().context("failed to initialize HTTP publisher")?);
 
-    let retry_policy = Arc::new(RetryPolicy::default());
-
     let delivery_service = Arc::new(DeliveryService::new(
         projections.clone(),
         delivery_store.clone(),
         publisher.clone(),
-        retry_policy.clone(),
     ));
 
     // ---------------------------------------------------------

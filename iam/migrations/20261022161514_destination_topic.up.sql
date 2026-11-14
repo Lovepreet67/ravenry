@@ -11,6 +11,8 @@ CREATE TABLE destinations(
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     delivery_timeout_seconds integer NOT NULL,
     tenant_id UUID NOT NULL,
+    retry_delay_ms integer NOT NULL,
+    max_attempts integer NOT NULL,
     created_by VARCHAR(255) NOT NULL,
     last_updated_by VARCHAR(255) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

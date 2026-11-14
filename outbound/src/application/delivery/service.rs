@@ -21,7 +21,6 @@ pub struct DeliveryService {
     projections: Arc<ProjectionStore>,
     store: Arc<DeliveryStore>,
     publisher: Arc<HttpPublisher>,
-    retry_policy: Arc<RetryPolicy>,
 }
 
 impl DeliveryService {
@@ -29,13 +28,11 @@ impl DeliveryService {
         projections: Arc<ProjectionStore>,
         store: Arc<DeliveryStore>,
         publisher: Arc<HttpPublisher>,
-        retry_policy: Arc<RetryPolicy>,
     ) -> Self {
         Self {
             projections,
             store,
             publisher,
-            retry_policy,
         }
     }
 
@@ -131,11 +128,15 @@ impl DeliveryService {
         };
 
         let mut outcome = self.publisher.deliver(&request, attempt_id, attempt).await;
+        let retry_policy = RetryPolicy::new(
+            request.destination_config.config.max_attempts,
+            request.destination_config.config.retry_delay_ms,
+        );
 
         let next_attempt_at = if outcome.success {
             None
         } else {
-            match self.retry_policy.on_failure(attempt) {
+            match retry_policy.on_failure(attempt) {
                 RetryDecision::RetryAt(next_attempt_at) => {
                     outcome.will_retry = true;
                     Some(next_attempt_at)

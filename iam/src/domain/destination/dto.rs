@@ -2,6 +2,12 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::destination::common::DestinationType;
+fn default_max_attempts() -> i32 {
+    3
+}
+fn default_retry_delay_ms() -> i32 {
+    200
+}
 
 #[derive(Deserialize, Debug)]
 pub struct CreateDestinationRequest {
@@ -10,6 +16,10 @@ pub struct CreateDestinationRequest {
     pub kind: DestinationType,
     pub destination_url: String,
     pub delivery_timeout_seconds: i32,
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: i32,
+    #[serde(default = "default_retry_delay_ms")]
+    pub retry_delay_ms: i32,
 }
 
 #[derive(Deserialize, Debug, Serialize)]
@@ -20,6 +30,8 @@ pub struct Destination {
     pub destination_url: String,
     pub is_active: bool,
     pub delivery_timeout_seconds: i32,
+    pub max_attempts: i32,
+    pub retry_delay_ms: i32,
     pub created_by: String,
     pub last_updated_by: String,
     pub created_at: chrono::DateTime<Utc>,
@@ -34,6 +46,8 @@ pub struct UpdateDestinationRequest {
     pub destination_url: Option<String>,
     pub is_active: Option<bool>,
     pub delivery_timeout_seconds: Option<i32>,
+    pub max_attempts: Option<i32>,
+    pub retry_delay_ms: Option<i32>,
 }
 
 #[derive(Deserialize)]

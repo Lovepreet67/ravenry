@@ -35,6 +35,8 @@ pub struct DestinationProjection {
     pub destination_url: String,
     pub is_active: bool,
     pub delivery_timeout_seconds: i32,
+    pub max_attempts: i32,
+    pub retry_delay_ms: i32,
 }
 
 #[derive(Debug, FromRow)]
@@ -59,6 +61,8 @@ struct DestinationRow {
     destination_url: String,
     is_active: bool,
     delivery_timeout_seconds: i32,
+    max_attempts: i32,
+    retry_delay_ms: i32,
 }
 
 #[derive(Debug, FromRow)]
@@ -109,7 +113,9 @@ pub async fn rebuild(
             kind::TEXT AS kind,
             destination_url,
             is_active,
-            delivery_timeout_seconds
+            delivery_timeout_seconds,
+            max_attempts,
+            retry_delay_ms
         FROM destinations
         WHERE tenant_id = $1
         ORDER BY id
@@ -167,6 +173,8 @@ pub async fn rebuild(
             destination_url: destination.destination_url,
             is_active: destination.is_active,
             delivery_timeout_seconds: destination.delivery_timeout_seconds,
+            retry_delay_ms: destination.retry_delay_ms,
+            max_attempts: destination.max_attempts,
         })
         .collect();
 

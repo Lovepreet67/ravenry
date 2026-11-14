@@ -81,10 +81,12 @@ impl DestinationRepository for DatabaseDestinationRepository {
             Destination,
             r#"INSERT INTO destinations
                 (name, kind, description, destination_url, delivery_timeout_seconds,
+                max_attempts, retry_delay_ms,
                  tenant_id, created_by, last_updated_by)
-            VALUES ($1, $2::destination_kind, $3, $4, $5, $6, $7, $7)
+            VALUES ($1, $2::destination_kind, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING id, name, kind as "kind: DestinationType", description,
                 destination_url, delivery_timeout_seconds, is_active, tenant_id,
+                max_attempts, retry_delay_ms,
                 created_by, last_updated_by, created_at, updated_at
             "#,
             destination.name,
@@ -92,6 +94,8 @@ impl DestinationRepository for DatabaseDestinationRepository {
             destination.description,
             destination.destination_url,
             destination.delivery_timeout_seconds,
+            destination.max_attempts,
+            destination.retry_delay_ms,
             destination.tenant_id,
             destination.created_by,
         )
@@ -111,6 +115,7 @@ impl DestinationRepository for DatabaseDestinationRepository {
         let destination = sqlx::query_as!(
             Destination,
             r#"SELECT id, name, kind as "kind: DestinationType", description,
+                max_attempts, retry_delay_ms,
                 destination_url, delivery_timeout_seconds, is_active, tenant_id,
                 created_by, last_updated_by, created_at, updated_at
             FROM destinations
@@ -140,6 +145,7 @@ impl DestinationRepository for DatabaseDestinationRepository {
 
         let mut data_qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "SELECT id, name, kind, description, destination_url, \
+            max_attempts, retry_delay_ms, \
              delivery_timeout_seconds, is_active, tenant_id, created_by, \
              last_updated_by, created_at, updated_at \
              FROM destinations",
@@ -172,10 +178,12 @@ impl DestinationRepository for DatabaseDestinationRepository {
             r#"UPDATE destinations
             SET name = $1, description = $2, kind = $3::destination_kind,
                 destination_url = $4, is_active = $5, delivery_timeout_seconds = $6,
-                last_updated_by = $7, updated_at = now()
-            WHERE id = $8 AND tenant_id = $9
+                max_attempts = $7, retry_delay_ms= $8,
+                last_updated_by = $9, updated_at = now()
+            WHERE id = $10 AND tenant_id = $11
             RETURNING id, name, kind as "kind: DestinationType", description,
                 destination_url, delivery_timeout_seconds, is_active, tenant_id,
+                retry_delay_ms, max_attempts,
                 created_by, last_updated_by, created_at, updated_at
             "#,
             destination.name,
@@ -184,6 +192,8 @@ impl DestinationRepository for DatabaseDestinationRepository {
             destination.destination_url,
             destination.is_active,
             destination.delivery_timeout_seconds,
+            destination.max_attempts,
+            destination.retry_delay_ms,
             destination.last_updated_by,
             destination.id,
             destination.tenant_id,

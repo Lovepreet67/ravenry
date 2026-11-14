@@ -98,6 +98,8 @@ for _, destination in ipairs(projection.destinations) do
         'kind', destination.kind,
         'status', destination.is_active and 'active' or 'inactive',
         'timeout', tostring(destination.delivery_timeout_seconds),
+        'max_attempts', tostring(destination.max_attempts),
+        'retry_delay_ms', tostring(destination.retry_delay_ms),
         'version', '1'
     )
 end

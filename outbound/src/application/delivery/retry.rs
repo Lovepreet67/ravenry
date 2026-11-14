@@ -27,6 +27,12 @@ pub enum RetryDecision {
 }
 
 impl RetryPolicy {
+    pub fn new(max_attempts: u32, retry_delay_ms: u64) -> Self {
+        Self {
+            max_attempts,
+            retry_delay: Duration::from_millis(retry_delay_ms),
+        }
+    }
     /// `attempt` is the attempt that has just failed.
     pub fn on_failure(&self, attempt: u32) -> RetryDecision {
         if attempt >= self.max_attempts {

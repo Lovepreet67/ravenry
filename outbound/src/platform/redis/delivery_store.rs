@@ -4,6 +4,7 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use iam_contracts::{delivery_outcome::DeliveryOutcome, keys, streams::DELIVERY_RESULTS};
 use redis::{aio::ConnectionManager, AsyncCommands, Script};
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::application::delivery::model::{
@@ -290,9 +291,14 @@ impl DeliveryStore {
             ))
             .await
             .context("failed to get delivery request")?;
+        info!(raw);
 
-        raw.map(|value| {
-            serde_json::from_str(&value).context("stored delivery request is invalid JSON")
+        raw.map(|value| match serde_json::from_str(&value) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                error!(error=%e);
+                return Err(anyhow::format_err!("Error while deserlizing"));
+            }
         })
         .transpose()
     }

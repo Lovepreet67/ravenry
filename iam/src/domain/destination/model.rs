@@ -10,6 +10,8 @@ pub struct NewDestination {
     pub description: Option<String>,
     pub destination_url: String,
     pub delivery_timeout_seconds: i32,
+    pub max_attempts: i32,
+    pub retry_delay_ms: i32,
     pub tenant_id: uuid::Uuid,
     pub created_by: String,
 }
@@ -24,6 +26,8 @@ pub struct Destination {
     pub is_active: bool,
     pub delivery_timeout_seconds: i32,
     pub tenant_id: uuid::Uuid,
+    pub max_attempts: i32,
+    pub retry_delay_ms: i32,
     pub created_by: String,
     pub last_updated_by: String,
     pub created_at: chrono::DateTime<Utc>,

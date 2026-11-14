@@ -56,6 +56,8 @@ function CreateForm({ onSubmit, isSubmitting, serverError }: CreateProps) {
       kind: "http",
       destination_url: "",
       delivery_timeout_seconds: 30,
+      retry_delay_ms: 200,
+      max_attempts: 2,
     },
   });
 
@@ -105,6 +107,37 @@ function CreateForm({ onSubmit, isSubmitting, serverError }: CreateProps) {
         <FieldError message={errors.destination_url?.message} />
       </div>
 
+      <div className="space-y-2">
+        <label
+          htmlFor="max_attempts"
+          className="text-sm font-medium"
+        >
+          Max Attempts
+        </label>
+        <input
+          id="max_attempts"
+          type="number"
+          min={1}
+          {...register("max_attempts")}
+          className={inputClass}
+        />
+        <FieldError message={errors.max_attempts?.message} />
+      </div>
+      <div className="space-y-2">
+        <label
+          htmlFor="retry_delay_ms"
+          className="text-sm font-medium"
+        >
+          Retry Delay (milliseconds)
+        </label>
+        <input
+          id="retry_delay_ms"
+          type="number"
+          {...register("retry_delay_ms")}
+          className={inputClass}
+        />
+        <FieldError message={errors.retry_delay_ms?.message} />
+      </div>
       <div className="space-y-2">
         <label
           htmlFor="delivery_timeout_seconds"
@@ -203,6 +236,37 @@ function EditForm({
           className={inputClass}
         />
         <FieldError message={errors.delivery_timeout_seconds?.message} />
+      </div>
+      <div className="space-y-2">
+        <label
+          htmlFor="max_attempts"
+          className="text-sm font-medium"
+        >
+          Max Attempts
+        </label>
+        <input
+          id="max_attempts"
+          type="number"
+          min={1}
+          {...register("max_attempts")}
+          className={inputClass}
+        />
+        <FieldError message={errors.max_attempts?.message} />
+      </div>
+      <div className="space-y-2">
+        <label
+          htmlFor="retry_delay_ms"
+          className="text-sm font-medium"
+        >
+          Retry Delay (milliseconds)
+        </label>
+        <input
+          id="retry_delay_ms"
+          type="number"
+          {...register("retry_delay_ms")}
+          className={inputClass}
+        />
+        <FieldError message={errors.retry_delay_ms?.message} />
       </div>
 
       <label className="flex items-center gap-3 text-sm">

@@ -7,6 +7,8 @@ export interface Destination {
   destination_url: string;
   is_active: boolean;
   delivery_timeout_seconds: number;
+  max_attempts: number;
+  retry_delay_ms: number;
   created_by: string;
   last_updated_by: string;
   created_at: string;
@@ -19,6 +21,8 @@ export interface CreateDestinationInput {
   kind: DestinationType;
   destination_url: string;
   delivery_timeout_seconds: number;
+  max_attempts: number;
+  retry_delay_ms: number;
 }
 
 export interface UpdateDestinationInput {
@@ -28,6 +32,8 @@ export interface UpdateDestinationInput {
   destination_url?: string;
   is_active?: boolean;
   delivery_timeout_seconds?: number;
+  max_attempts?: number;
+  retry_delay_ms?: number;
 }
 
 export interface DestinationFilters {

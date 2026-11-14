@@ -10,6 +10,13 @@ export const createDestinationSchema = z.object({
     .number()
     .int("Timeout must be a whole number")
     .min(1, "Timeout must be at least 1 second"),
+  retry_delay_ms: z.coerce
+    .number()
+    .int("retry delay must be a whole number"),
+  max_attempts: z.coerce
+    .number()
+    .int("Max attempts must be a whole number")
+    .min(1, "Attempts must be at least 1 second"),
 });
 
 export const updateDestinationSchema = z.object({
@@ -20,7 +27,15 @@ export const updateDestinationSchema = z.object({
     .number()
     .int("Timeout must be a whole number")
     .min(1, "Timeout must be at least 1 second"),
+  retry_delay_ms: z.coerce
+    .number()
+    .int("retry delay must be a whole number"),
+  max_attempts: z.coerce
+    .number()
+    .int("Max attempts must be a whole number")
+    .min(1, "Attempts must be at least 1 second"),
   is_active: z.boolean(),
+
 });
 
 export type CreateDestinationFormValues = z.infer<
