@@ -12,6 +12,7 @@ use tracing::{error, info};
 use iam_contracts::topic_registory::{RedisTopicRegistry, TopicRegistry};
 
 use streamforge::factory::build_queue;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
     application::{
@@ -33,10 +34,7 @@ async fn main() -> Result<()> {
 
     info!(config_path = %config_path, "Configuration loaded");
 
-    // ---------------------------------------------------------
-    // Infrastructure
-    // ---------------------------------------------------------
-
+    // event queue which is populated by inbound service
     let queue = build_queue(&config.queue)
         .await
         .context("failed to initialize queue backend")?;
@@ -131,5 +129,8 @@ async fn main() -> Result<()> {
 }
 
 fn init_tracing() {
-    tracing_subscriber::fmt().with_target(true).init();
+    tracing_subscriber::fmt()
+        .with_target(true)
+        .with_span_events(FmtSpan::CLOSE)
+        .init();
 }

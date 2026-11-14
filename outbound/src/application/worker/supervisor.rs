@@ -113,9 +113,12 @@ impl WorkerSupervisor {
             let id = Uuid::new_v4();
             let worker = StreamWorker::run(
                 id,
+                stream.tenant_id,
+                stream.topic_id,
                 worker_stream,
                 self.queue.clone(),
                 self.delivery_service.clone(),
+                self.projection_store.clone(),
                 self.config.stream_worker_config.clone(),
                 token,
             );

@@ -1,7 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
-use iam_contracts::events::PublishedEvent;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -11,7 +10,6 @@ use crate::{
         model::{AcquireResult, CompleteAttemptResult, DeliveryRequest},
         retry::{RetryDecision, RetryPolicy},
     },
-    model::ResolvedDestination,
     platform::projection_store::ProjectionStore,
     platform::redis::delivery_store::DeliveryStore,
 };
@@ -41,68 +39,12 @@ impl DeliveryService {
         }
     }
 
-    /// Resolves destinations for an event and registers each delivery.
-    ///
-    /// Each event/destination pair gets a deterministic delivery ID.
-    /// Reprocessing the same event therefore cannot create a new logical
-    /// delivery for the same destination.
-    pub async fn deliver_event(&self, event: &PublishedEvent) -> anyhow::Result<()> {
-        let destinations = if event.destinations.is_none() {
-            self.projections
-                .resolve_topic_destinations(event.tenant_id, event.topic_id)
-                .await
-                .context("failed to resolve topic destinations")?
-        } else {
-            // UNWRAP_SAFETY:  we checked already if the destinations are null
-            self.projections
-                .get_destination_details(event.tenant_id, &event.destinations.as_ref().unwrap())
-                .await
-                .context("failed to resolve the listed destinations")?
-        };
-
-        info!(
-            event_id = %event.event_id,
-            destination_count = destinations.len(),
-            "Resolved event destinations"
-        );
-
-        for destination in destinations {
-            if destination.config.status != "active" {
-                debug!(
-                    destination_id = %destination.id,
-                    "Skipping inactive destination"
-                );
-                continue;
-            }
-
-            let request = DeliveryRequest {
-                delivery_id: Self::delivery_id(event.event_id, destination.id),
-                event_id: event.event_id,
-                tenant_id: event.tenant_id,
-                topic_id: event.topic_id,
-                destination_id: destination.id,
-                payload: event.payload.clone(),
-            };
-
-            let registered = self
-                .store
-                .register_delivery(&request)
-                .await
-                .context("failed to register delivery")?;
-
-            if !registered {
-                debug!(
-                    delivery_id = %request.delivery_id,
-                    "Delivery already registered; checking whether it can be acquired"
-                );
-            }
-
-            self.execute_delivery(request, destination).await?;
-        }
-
-        Ok(())
+    pub async fn register_delivery(&self, request: &DeliveryRequest) -> anyhow::Result<bool> {
+        self.store
+            .register_delivery(&request)
+            .await
+            .context("failed to register delivery")
     }
-
     /// Executes one retry for an existing delivery request.
     ///
     /// This method deliberately does not resolve the event's topic
@@ -134,14 +76,10 @@ impl DeliveryService {
             return Ok(());
         }
 
-        self.execute_delivery(request, destination).await
+        self.execute_delivery(request).await
     }
 
-    async fn execute_delivery(
-        &self,
-        request: DeliveryRequest,
-        destination: ResolvedDestination,
-    ) -> anyhow::Result<()> {
+    pub async fn execute_delivery(&self, request: DeliveryRequest) -> anyhow::Result<()> {
         let attempt_id = Uuid::new_v4();
 
         let acquired = self
@@ -192,10 +130,7 @@ impl DeliveryService {
             }
         };
 
-        let mut outcome = self
-            .publisher
-            .deliver(&destination, &request, attempt_id, attempt)
-            .await;
+        let mut outcome = self.publisher.deliver(&request, attempt_id, attempt).await;
 
         let next_attempt_at = if outcome.success {
             None
@@ -260,7 +195,7 @@ impl DeliveryService {
     }
 
     /// Derives a stable delivery ID from the event and destination IDs.
-    fn delivery_id(event_id: Uuid, destination_id: Uuid) -> Uuid {
+    pub fn delivery_id(event_id: Uuid, destination_id: Uuid) -> Uuid {
         let name = format!("{event_id}:{destination_id}");
 
         Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes())

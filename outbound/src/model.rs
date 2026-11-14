@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 fn deserialize_timeout<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -10,7 +10,7 @@ where
     value.parse::<u64>().map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize,Serialize)]
 pub struct DestinationProjection {
     pub name: String,
     pub url: String,
@@ -21,7 +21,7 @@ pub struct DestinationProjection {
     pub version: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone,Serialize,Deserialize)]
 pub struct ResolvedDestination {
     pub id: Uuid,
     pub config: DestinationProjection,

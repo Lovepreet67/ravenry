@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use iam_contracts::delivery_outcome::DeliveryOutcome;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::model::ResolvedDestination;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,6 +42,7 @@ pub struct DeliveryRequest {
     pub topic_id: Uuid,
     pub destination_id: Uuid,
     pub payload: serde_json::Value,
+    pub destination_config: Arc<ResolvedDestination>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

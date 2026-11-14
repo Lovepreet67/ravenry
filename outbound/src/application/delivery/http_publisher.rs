@@ -5,7 +5,7 @@ use iam_contracts::delivery_outcome::DeliveryOutcome;
 use reqwest::Client;
 use uuid::Uuid;
 
-use crate::{application::delivery::model::DeliveryRequest, model::ResolvedDestination};
+use crate::application::delivery::model::DeliveryRequest;
 
 #[derive(Clone)]
 pub struct HttpPublisher {
@@ -23,16 +23,16 @@ impl HttpPublisher {
 
     pub async fn deliver(
         &self,
-        destination: &ResolvedDestination,
         request: &DeliveryRequest,
         attempt_id: Uuid,
         attempt: u32,
     ) -> DeliveryOutcome {
         let attempted_at = Utc::now();
 
+        let destination = &request.destination_config;
         let result = self
             .client
-            .post(&destination.config.url)
+            .post(&request.destination_config.config.url)
             .timeout(Duration::from_secs(destination.config.timeout))
             .header("Idempotency-Key", request.delivery_id.to_string())
             .json(&request.payload)
