@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use iam_contracts::events::PublishedEvent; // ADJUST
-use iam_contracts::streams::topic_events;  // ADJUST
+use iam_contracts::events::PublishedEvent;
+use iam_contracts::streams::topic_events;
 use sqlx::PgConnection;
 
 use crate::core::inbox::InboxMessage;

@@ -175,14 +175,13 @@ impl Ingester {
                 .increment(rows.len() as u64);
 
             // Inbox committed. ACK failures are harmless: redelivery is deduped.
-            for d in &deliveries {
-                if let Err(e) = self
-                    .queue
-                    .ack(&stream, &self.group, queue_message_id(d))
-                    .await
-                {
-                    warn!(pipeline, stream = %stream, error = %e, "ack failed, will be redelivered");
-                }
+            let delivery_ids: Vec<_> = deliveries.iter().map(|d| queue_message_id(d)).collect();
+            if let Err(e) = self
+                .queue
+                .ack_batch(&stream, &self.group, &delivery_ids)
+                .await
+            {
+                warn!(pipeline, stream = %stream, error = %e, "ack failed, will be redelivered");
             }
             debug!(pipeline, stream = %stream, n = deliveries.len(), "inboxed and acked");
         }

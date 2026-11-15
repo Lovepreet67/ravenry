@@ -1,13 +1,13 @@
+queue_batch_size = 10000
+queue_block_ms = 100
+queue_reconcile_interval_secs = 30
 # Everything below is optional and shown with defaults.
 [queue]
 backend = "redis_stream"
 consumer_prefix = "muninn"
-batch_size = 100
-block_ms = 2000
-reconcile_interval_secs = 30
 
 [inbox]
-batch_size = 100
+batch_size = 10000
 lease_secs = 60
 max_attempts = 10
 

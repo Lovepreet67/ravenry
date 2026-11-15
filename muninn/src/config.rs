@@ -5,6 +5,9 @@ use streamforge::config::QueueConfig;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    pub queue_reconcile_interval_secs: u64,
+    pub queue_batch_size: usize,
+    pub queue_block_ms: usize,
     pub database: DatabaseConfig,
     pub redis: RedisConfig,
     pub queue: QueueConfig,

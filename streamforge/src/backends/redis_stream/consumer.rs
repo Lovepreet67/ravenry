@@ -109,4 +109,15 @@ impl Consumer for RedisStream {
 
         Ok(())
     }
+
+    async fn ack_batch(&self, destination: &str, group: &str, delivery_ids: &[&str]) -> Result<()> {
+        let mut conn = self.conn.clone();
+
+        let _: i64 = conn
+            .xack(destination, group, delivery_ids)
+            .await
+            .map_err(|e| QueueError::Ack(e.to_string()))?;
+
+        Ok(())
+    }
 }

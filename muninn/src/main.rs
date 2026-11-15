@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pipelines = pipelines::all(registry);
     let names: Vec<&'static str> = pipelines.iter().map(|p| p.name()).collect();
 
-    let reconcile = Duration::from_secs(10); //cfg.queue.reconcile_interval_secs);
+    let reconcile = Duration::from_secs(cfg.queue_reconcile_interval_secs);
     let health = Health::new(
         pool.clone(),
         prom,
@@ -68,8 +68,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ing_cfg = IngesterConfig {
         consumer_name: consumer_name.clone(),
-        batch_size: 100, //cfg.queue.batch_size,
-        block_ms: 10,    //cfg.queue.block_ms,
+        batch_size: cfg.queue_batch_size,
+        block_ms: cfg.queue_block_ms,
         reconcile_interval: reconcile,
     };
     let proc_cfg = ProcessorConfig {

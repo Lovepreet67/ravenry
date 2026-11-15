@@ -1,4 +1,4 @@
-use iam_contracts::streams::DELIVERY_RESULTS; // ADJUST
+use iam_contracts::streams::DELIVERY_RESULTS;
 
 use crate::core::StaticSource;
 

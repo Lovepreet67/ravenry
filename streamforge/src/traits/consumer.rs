@@ -16,4 +16,5 @@ pub trait Consumer: Send + Sync + Debug {
     ) -> Result<Vec<Delivery>>;
 
     async fn ack(&self, destination: &str, group: &str, delivery_id: &str) -> Result<()>;
+    async fn ack_batch(&self, destination: &str, group: &str, delivery_ids: &[&str]) -> Result<()>;
 }
