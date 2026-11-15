@@ -15,8 +15,8 @@ use crate::{
     application::{
         delivery::service::DeliveryService,
         worker::{
-            dlq_wokrer::DlqWorker, retry_worker::RetryWorker, stream_worker::StreamWorker,
-            util::sleep_or_cancel,
+            dlq_wokrer::DlqWorker, manual_retry_worker::ManualRetryWorker,
+            retry_worker::RetryWorker, stream_worker::StreamWorker, util::sleep_or_cancel,
         },
     },
     config::worker::WorkerRuntimeConfig,
@@ -58,10 +58,16 @@ impl WorkerSupervisor {
         info!("Starting workers");
         let mut stream_workers: HashMap<String, StreamWorker> = HashMap::new();
         let mut retry_workers: HashMap<(Uuid, Uuid), RetryWorker> = HashMap::new();
+        let mut manual_retry_workers: HashMap<Uuid, ManualRetryWorker> = HashMap::new();
         let mut dlq_workers: HashMap<(Uuid, Uuid), DlqWorker> = HashMap::new();
         while !self.shutdown_token.is_cancelled() {
             if let Err(err) = self
-                .reconcile_consumer(&mut stream_workers, &mut retry_workers, &mut dlq_workers)
+                .reconcile_consumer(
+                    &mut stream_workers,
+                    &mut retry_workers,
+                    &mut dlq_workers,
+                    &mut manual_retry_workers,
+                )
                 .await
             {
                 warn!(error=%err, "Worker reconcilation failed");
@@ -75,6 +81,7 @@ impl WorkerSupervisor {
         stream_workers: &mut HashMap<String, StreamWorker>,
         retry_workers: &mut HashMap<(Uuid, Uuid), RetryWorker>,
         dlq_workers: &mut HashMap<(Uuid, Uuid), DlqWorker>,
+        manaul_retry_workers: &mut HashMap<Uuid, ManualRetryWorker>,
     ) -> Result<()> {
         let streams: Vec<_> = self
             .topic_registory
@@ -222,6 +229,39 @@ impl WorkerSupervisor {
                 token,
             );
             dlq_workers.insert(worker_key, worker);
+        }
+
+        // 4. reconcile the manual retry worker
+        self.queue
+            .ensure_group(
+                iam_contracts::streams::MANUALY_RETRY,
+                &self.config.manual_retry_worker_config.consumer_group,
+            )
+            .await?;
+        let obsolute_mr_workers: Vec<_> = manaul_retry_workers
+            .iter()
+            .filter(|(_, worker)| worker.is_finished())
+            .map(|(key, _)| key.clone())
+            .collect();
+        for omr in obsolute_mr_workers {
+            manaul_retry_workers.remove(&omr);
+        }
+        for _ in
+            0..(self.config.manual_retry_worker_config.worker_count - manaul_retry_workers.len())
+        {
+            let stream = iam_contracts::streams::MANUALY_RETRY.to_string();
+            let token = self.shutdown_token.clone();
+            let id = Uuid::new_v4();
+            let worker = ManualRetryWorker::run(
+                id,
+                stream,
+                self.queue.clone(),
+                self.delivery_store.clone(),
+                self.delivery_service.clone(),
+                self.config.manual_retry_worker_config.clone(),
+                token,
+            );
+            manaul_retry_workers.insert(id, worker);
         }
         Ok(())
     }

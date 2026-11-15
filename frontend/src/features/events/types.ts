@@ -36,3 +36,13 @@ export interface DeliveryAttemptsResponse {
   attempts: DeliveryAttempt[];
   next_cursor: string | null;
 }
+
+export interface RetryDeliveryCommand {
+  delivery_id: string;
+  destination_id: string;
+}
+
+export interface RetryDeliveryCommandResponse {
+  status: string;
+  message_id: string;
+}

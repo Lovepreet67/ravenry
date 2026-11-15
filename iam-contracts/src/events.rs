@@ -55,3 +55,29 @@ impl PublishedEvent {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryEvent {
+    pub schema_version: u16,
+    pub delivery_id: Uuid,
+    pub tenant_id: Uuid,
+    pub destination_id: Uuid,
+    pub curr_attempt: i32,
+}
+
+impl RetryEvent {
+    pub fn new(
+        delivery_id: Uuid,
+        tenant_id: Uuid,
+        destination_id: Uuid,
+        curr_attempt: i32,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            delivery_id,
+            tenant_id,
+            destination_id,
+            curr_attempt,
+        }
+    }
+}

@@ -1,10 +1,12 @@
-import { huginnApiClient as apiClient } from "@/lib/api/clients";
+import { huginnApiClient as apiClient, inboundApiClient } from "@/lib/api/clients";
 
-import type {
-  CursorPage,
-  Delivery,
-  DeliveryAttemptsResponse,
-  EventItem,
+import {
+  type CursorPage,
+  type Delivery,
+  type DeliveryAttemptsResponse,
+  type EventItem,
+  type RetryDeliveryCommand,
+  type RetryDeliveryCommandResponse,
 } from "./types";
 
 export interface CursorParams {
@@ -46,6 +48,16 @@ export async function listDeliveries(
     },
   );
 
+  return response.data;
+}
+
+export async function retryDelivery(
+  tenantId: string,
+  retryCommand: RetryDeliveryCommand
+): Promise<RetryDeliveryCommandResponse> {
+  const response = await inboundApiClient.post<RetryDeliveryCommandResponse>(
+    `/tenants/${tenantId}/retry`, retryCommand
+  );
   return response.data;
 }
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronRight,
@@ -8,17 +9,20 @@ import {
   Send,
   Clock,
   RefreshCw,
+  RotateCw,
 } from "lucide-react";
 
 import {
   listEvents,
   listDeliveries,
   listDeliveryAttempts,
+  retryDelivery,
 } from "@/features/events/api";
 import type {
   Delivery,
   DeliveryAttempt,
   EventItem,
+  RetryDeliveryCommand,
 } from "@/features/events/types";
 import { getApiErrorMessage } from "@/lib/api-error";
 
@@ -136,12 +140,53 @@ function DeliveryRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const queryClient = useQueryClient();
+
+  const retryMutation = useMutation({
+    mutationFn: (command: RetryDeliveryCommand) =>
+      retryDelivery(tenantId, command),
+
+    onSuccess: (_) => {
+      toast.success("Delivery retry initiated successfully");
+
+      // Update the cached delivery status immediately
+      queryClient.setQueriesData(
+        { queryKey: ["event-deliveries", tenantId] },
+        (oldData: any) => {
+          if (!oldData?.items) return oldData;
+
+          return {
+            ...oldData,
+            items: oldData.items.map((item: Delivery) =>
+              item.delivery_id === delivery.delivery_id
+                ? {
+                  ...item,
+                  status: "pending",
+                }
+                : item,
+            ),
+          };
+        },
+      );
+    },
+
+    onError: (error) => {
+      toast.error(getApiErrorMessage(error));
+    },
+  });
   return (
     <div className="border-t border-border">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="flex w-full flex-wrap items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-card/70"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className="flex w-full cursor-pointer flex-wrap items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-card/70"
       >
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         <Send size={16} className="text-muted-foreground" />
@@ -156,10 +201,35 @@ function DeliveryRow({
           Attempts: {delivery.current_attempt}
         </span>
 
-        <span className="ml-auto text-xs text-muted-foreground">
-          {formatDate(delivery.updated_at)}
-        </span>
-      </button>
+        <div className="ml-auto flex items-center gap-3">
+          {delivery.status === "failed" && (
+            <button
+              type="button"
+              disabled={retryMutation.isPending}
+              onClick={(e) => {
+                e.stopPropagation();
+
+                retryMutation.mutate({
+                  delivery_id: delivery.delivery_id,
+                  destination_id: delivery.destination_id,
+                });
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCw
+                size={12}
+                className={retryMutation.isPending ? "animate-spin" : ""}
+              />
+
+              {retryMutation.isPending ? "Retrying..." : "Retry"}
+            </button>
+          )}
+
+          <span className="text-xs text-muted-foreground">
+            {formatDate(delivery.updated_at)}
+          </span>
+        </div>
+      </div>
 
       {expanded && (
         <div className="border-t border-border bg-background/50">

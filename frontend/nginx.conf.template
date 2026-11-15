@@ -16,6 +16,17 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+     # INBOUND API: /iam/users -> http://iam:<port>/users
+    location /inbound/ {
+        proxy_pass http://inbound:${INBOUND_UPSTREAM_PORT}/;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # Huginn API: /huginn/tenants/... -> http://huginn:8081/tenants/...
     location /huginn/ {
         proxy_pass http://huginn:${HUGINN_UPSTREAM_PORT}/;

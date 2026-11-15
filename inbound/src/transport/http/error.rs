@@ -5,12 +5,13 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::application::publish::error::PublishError;
+use crate::application::{publish::error::PublishError, retry::error::RetryError};
 use iam_contracts::auth::error::AuthError;
 
 pub enum HttpError {
     Auth(AuthError),
     Publish(PublishError),
+    Retry(RetryError),
 }
 
 impl From<AuthError> for HttpError {
@@ -40,6 +41,21 @@ impl IntoResponse for HttpError {
                         (StatusCode::BAD_REQUEST, "invalid publish request")
                     }
                     PublishError::ProjectionUnavailable | PublishError::QueueUnavailable => (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "publishing service temporarily unavailable",
+                    ),
+                };
+
+                (status, Json(json!({ "error": message }))).into_response()
+            }
+            Self::Retry(err) => {
+                let (status, message) = match err {
+                    RetryError::Forbidden => (StatusCode::FORBIDDEN, "publishing is not permitted"),
+                    RetryError::InvalidRequest(_) => {
+                        (StatusCode::BAD_REQUEST, "invalid publish request")
+                    }
+                    RetryError::DeliveryNotFound => (StatusCode::BAD_REQUEST, "Delivery not found"),
+                    RetryError::QueueUnavailable => (
                         StatusCode::SERVICE_UNAVAILABLE,
                         "publishing service temporarily unavailable",
                     ),

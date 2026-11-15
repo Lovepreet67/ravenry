@@ -167,11 +167,13 @@ services:
       args:
         VITE_IAM_API_BASE_URL: /iam
         VITE_HUGINN_API_BASE_URL: /huginn
+        VITE_INBOUND_API_BASE_URL: /inbound
     ports:
       - "8082:80"
     environment:
       IAM_UPSTREAM_PORT: 3001
       HUGINN_UPSTREAM_PORT: 8081
+      INBOUND_UPSTREAM_PORT: ${INBOUND_SERVER_PORT}
     depends_on:
       iam:
         condition: service_started

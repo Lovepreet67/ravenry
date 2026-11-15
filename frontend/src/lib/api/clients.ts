@@ -18,3 +18,10 @@ export const huginnApiClient = createApiClient(
     import.meta.env.VITE_HUGINN_API_BASE_URL,
   ),
 );
+
+export const inboundApiClient = createApiClient(
+  requiredEnv(
+    "VITE_INBOUND_API_BASE_URL",
+    import.meta.env.VITE_INBOUND_API_BASE_URL,
+  ),
+);
