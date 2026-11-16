@@ -7,6 +7,7 @@ use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
+use mimir::config::MimirConfig;
 use worker::WorkerConfig;
 
 use std::path::Path;
@@ -21,6 +22,7 @@ pub struct Config {
     pub queue: streamforge::config::QueueConfig,
     pub projection: ProjectionConfig,
     pub worker: WorkerConfig,
+    pub mimir: MimirConfig,
 }
 
 impl Config {

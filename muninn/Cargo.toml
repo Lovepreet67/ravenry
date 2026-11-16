@@ -29,4 +29,5 @@ streamforge = { path = "../streamforge" }
 iam-contracts = { path = "../iam-contracts" }
 metrics-exporter-prometheus = "0.18.3"
 axum = "0.8.9"
+mimir = { path = "../mimir" }
 metrics = "0.24.6"

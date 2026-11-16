@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+          - "prometheus:9090"
+
+  - job_name: "iam"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "iam:9091"
+
+  - job_name: "hugin"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "huginn:9091"
+
+  - job_name: "muninn"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "muninn:9091"
+
+  - job_name: "inbound"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "inbound:9091"
+
+  - job_name: "outbound"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "outbound:9091"

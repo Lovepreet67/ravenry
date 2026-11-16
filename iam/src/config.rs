@@ -5,6 +5,7 @@ use figment::{
     providers::{Env, Format, Toml},
 };
 use iam_contracts::auth::config::AuthConfig;
+use mimir::config::MimirConfig;
 // src/config.rs
 use serde::Deserialize;
 
@@ -15,6 +16,7 @@ pub struct Config {
     pub admin_api_key: String,
     pub server_port: u16,
     pub auth_config: AuthConfig,
+    pub mimir: MimirConfig,
 }
 
 impl Config {

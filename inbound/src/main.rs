@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use crate::platform::auth::keys::PublicKeyStore;
+use axum::middleware;
 use iam_contracts::auth::jwt::verifier::JwtVerifier;
+use mimir::http::track;
+use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 pub mod application;
 pub mod config;
@@ -14,6 +18,15 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".into());
     let config = Arc::new(config::Config::load(config_path)?);
+    // init prom handler
+    let prom_handle = mimir::init("inbound");
+    let mimir_config = config.mimir.clone();
+    let shutdown_token = CancellationToken::new();
+    tokio::spawn(async move {
+        info!("Promethous metrics server started");
+        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
+    });
+
     let queue = streamforge::factory::build_queue(&config.queue).await?;
     let projections =
         platform::projection_store::ProjectionStore::connect(&config.projection.redis_url).await?;
@@ -29,7 +42,9 @@ async fn main() -> anyhow::Result<()> {
         projections,
     };
 
-    let app = transport::http::router::get_router().with_state(state);
+    let app = transport::http::router::get_router()
+        .route_layer(middleware::from_fn(track))
+        .with_state(state);
 
     let listener =
         tokio::net::TcpListener::bind((config.server.host.as_str(), config.server.port)).await?;

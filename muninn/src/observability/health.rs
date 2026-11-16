@@ -15,22 +15,15 @@ use tokio_util::sync::CancellationToken;
 ///   (which proves Redis and the topic registry are working)
 pub struct Health {
     pool: PgPool,
-    prom: PrometheusHandle,
     pipelines: Vec<&'static str>,
     stale_after: Duration,
     last_reconcile: Mutex<HashMap<&'static str, Instant>>,
 }
 
 impl Health {
-    pub fn new(
-        pool: PgPool,
-        prom: PrometheusHandle,
-        pipelines: Vec<&'static str>,
-        stale_after: Duration,
-    ) -> Arc<Self> {
+    pub fn new(pool: PgPool, pipelines: Vec<&'static str>, stale_after: Duration) -> Arc<Self> {
         Arc::new(Self {
             pool,
-            prom,
             pipelines,
             stale_after,
             last_reconcile: Mutex::new(HashMap::new()),
@@ -53,17 +46,12 @@ pub async fn serve(
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" })) // liveness: process is up
         .route("/readyz", get(ready)) // readiness: can do work
-        .route("/metrics", get(metrics))
         .with_state(health);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(async move { shutdown.cancelled().await })
         .await
-}
-
-async fn metrics(State(h): State<Arc<Health>>) -> String {
-    h.prom.render()
 }
 
 async fn ready(State(h): State<Arc<Health>>) -> (StatusCode, Json<Value>) {

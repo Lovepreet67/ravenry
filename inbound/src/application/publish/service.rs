@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use metrics::counter;
+use mimir::names;
 use streamforge::{message::Message, traits::Queue};
 use uuid::Uuid;
 
@@ -23,6 +25,7 @@ impl PublishService {
         tenant_id: Uuid,
         command: PublishCommand,
     ) -> Result<String, PublishError> {
+        counter!(names::EVENTS_RECEIVED).increment(1);
         command.validate()?;
         let topic_id = self
             .projections
@@ -45,9 +48,12 @@ impl PublishService {
         let message = Message::new(payload).with_id(event.event_id.to_string());
         let destination = iam_contracts::streams::topic_events(tenant_id, topic_id);
 
-        self.queue
+        let res = self
+            .queue
             .publish(&destination, message)
             .await
-            .map_err(|_| PublishError::QueueUnavailable)
+            .map_err(|_| PublishError::QueueUnavailable)?;
+        counter!(names::EVENTS_PUBLISHED).increment(1);
+        Ok(res)
     }
 }

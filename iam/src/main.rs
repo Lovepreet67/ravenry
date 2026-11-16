@@ -3,6 +3,7 @@ use iam_contracts::auth::jwt::{signer::JwtSigner, verifier::JwtVerifier};
 use sqlx::postgres::PgPoolOptions;
 use std::{format, sync::Arc};
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
 use crate::{
@@ -31,6 +32,14 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let config_path = std::env::var("CONFIG_FILE_PATH").unwrap_or(".env.toml".into());
     let config = Config::load(config_path)?;
+    // init prom handler
+    let prom_handle = mimir::init("inbound");
+    let mimir_config = config.mimir.clone();
+    let shutdown_token = CancellationToken::new();
+    tokio::spawn(async move {
+        info!("Promethous metrics server started");
+        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
+    });
     let db_conn = PgPoolOptions::new()
         .max_connections(10)
         .after_connect(|_conn, _meta| {

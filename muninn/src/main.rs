@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::postgres::PgPoolOptions;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -29,7 +30,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cfg = Config::load()?;
 
-    let prom = metrics::install();
+    // init prom handler
+    let prom_handle = mimir::init("inbound");
+    let mimir_config = cfg.mimir.clone();
+    let shutdown_token = CancellationToken::new();
+    tokio::spawn(async move {
+        info!("Promethous metrics server started");
+        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
+    });
 
     // Fail fast: if a dependency is down at startup, exit and let the
     // orchestrator restart us.
@@ -59,12 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let names: Vec<&'static str> = pipelines.iter().map(|p| p.name()).collect();
 
     let reconcile = Duration::from_secs(cfg.queue_reconcile_interval_secs);
-    let health = Health::new(
-        pool.clone(),
-        prom,
-        names,
-        reconcile * 3 + Duration::from_secs(10),
-    );
+    let health = Health::new(pool.clone(), names, reconcile * 3 + Duration::from_secs(10));
 
     let ing_cfg = IngesterConfig {
         consumer_name: consumer_name.clone(),

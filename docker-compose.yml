@@ -25,10 +25,33 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
       interval: 5s
       timeout: 3s
       retries: 10
+  prometheus:
+    image: e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./mimir/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3007:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
 
   migrate:
     build:
@@ -49,6 +72,7 @@ services:
       MUNINN_DATABASE__URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       MUNINN_QUEUE__URL: redis://:${REDIS_PASSWORD}@redis:6379/
       MUNINN_REDIS__URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      MUNINN_MIMIR__addr: 0.0.0.0:9091
       RUST_LOG: info
     volumes:
       - ./muninn/config.toml:/app/config.toml:ro
@@ -74,6 +98,7 @@ services:
       APP_SERVER_PORT: ${IAM_SERVER_PORT}
       APP_ADMIN_API_KEY: ${IAM_ADMIN_API_KEY}
       APP_AUTH_CONFIG__JWT_TTL_HOURS: ${IAM_JWT_TTL_HOURS}
+      APP_MIMIR__addr: 0.0.0.0:9091
       RUST_LOG: info
 
     depends_on:
@@ -92,7 +117,8 @@ services:
       CONFIG_PATH: /app/config.toml
       # Secrets come from the environment, never from the image.
       HUGINN_DATABASE__URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
-      HUGINN_IAM_CONFIG__PUBLIC_KEY_URL: http://@iam:3001/auth/public-key
+      HUGINN_IAM_CONFIG__PUBLIC_KEY_URL: http://iam:3001/auth/public-key
+      HUGINN_MIMIR__addr: 0.0.0.0:9091
       RUST_LOG: info
     volumes:
       - ./huginn/config.toml:/app/config.toml:ro
@@ -125,6 +151,7 @@ services:
       APP_QUEUE__BACKEND: redis_stream
       APP_QUEUE__URL: redis://:${REDIS_PASSWORD}@redis:6379/
       APP_PROJECTION__REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      APP_MIMIR__addr: 0.0.0.0:9091
       RUST_LOG: info
 
     depends_on:
@@ -153,6 +180,7 @@ services:
       APP_QUEUE__BACKEND: redis_stream
       APP_QUEUE__URL: redis://:${REDIS_PASSWORD}@redis:6379/
       APP_PROJECTION__REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
+      APP_MIMIR__addr: 0.0.0.0:9091
       RUST_LOG: info
     depends_on:
       redis:
@@ -185,3 +213,5 @@ services:
 volumes:
   redis-data:
   pg-data:
+  prometheus-data:
+  grafana-data:

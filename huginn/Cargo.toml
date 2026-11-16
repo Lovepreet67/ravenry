@@ -31,3 +31,6 @@ reqwest = { version = "0.12", default-features = false, features = [
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 iam-contracts = { path = "../iam-contracts" }
+mimir = { path = "../mimir" }
+metrics = "0.24.6"
+tokio-util = "0.7.20"

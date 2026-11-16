@@ -1,5 +1,6 @@
 use figment::providers::{Env, Format, Toml};
 use figment::Figment;
+use mimir::config::MimirConfig;
 use serde::Deserialize;
 use streamforge::config::QueueConfig;
 
@@ -17,6 +18,7 @@ pub struct Config {
     pub workers: WorkersConfig,
     #[serde(default)]
     pub observability: ObservabilityConfig,
+    pub mimir: MimirConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]

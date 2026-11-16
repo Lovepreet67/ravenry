@@ -1,5 +1,6 @@
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
+use mimir::config::MimirConfig;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -10,6 +11,7 @@ pub struct Config {
     #[serde(default)]
     pub access: AccessConfig,
     pub iam_config: IamConfig,
+    pub mimir: MimirConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]

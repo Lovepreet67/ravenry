@@ -1,0 +1,13 @@
+[package]
+name = "mimir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.9"
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
+serde = { version = "1.0.229", features = ["derive"] }
+subtle = "2.6.1"
+tokio = { version = "1.54.1", features = ["net", "sync"] }
+tokio-util = "0.7.20"

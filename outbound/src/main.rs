@@ -33,6 +33,14 @@ async fn main() -> Result<()> {
         .with_context(|| format!("failed to load config from {config_path}"))?;
 
     info!(config_path = %config_path, "Configuration loaded");
+    // init prom handler
+    let prom_handle = mimir::init("inbound");
+    let mimir_config = config.mimir.clone();
+    let shutdown_token = CancellationToken::new();
+    tokio::spawn(async move {
+        info!("Promethous metrics server started");
+        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
+    });
 
     // event queue which is populated by inbound service
     let queue = build_queue(&config.queue)

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use metrics::counter;
+use mimir::names;
 use streamforge::{message::Message, traits::Queue};
 use uuid::Uuid;
 
@@ -23,6 +25,7 @@ impl RetryService {
         tenant_id: Uuid,
         command: RetryCommand,
     ) -> Result<String, RetryError> {
+        counter!(names::MANUAL_RETRY_RECEIVED).increment(1);
         let attempts = self
             .projections
             .assert_delivery_exist(tenant_id, command.destination_id, command.delivery_id)
@@ -50,6 +53,7 @@ impl RetryService {
             .mark_delivery_pending(tenant_id, command.destination_id, command.delivery_id)
             .await
             .map_err(|e| RetryError::InvalidRequest(e.to_string()))?;
+        counter!(names::MANUAL_RETRY_PUBLISHED).increment(1);
         Ok(message_id)
     }
 }

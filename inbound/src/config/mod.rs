@@ -9,6 +9,7 @@ use figment::{
     Figment,
 };
 use iam::IamConfig;
+use mimir::config::MimirConfig;
 use projection::ProjectionConfig;
 use serde::Deserialize;
 use server::ServerConfig;
@@ -19,6 +20,7 @@ pub struct Config {
     pub queue: streamforge::config::QueueConfig,
     pub iam: IamConfig,
     pub projection: ProjectionConfig,
+    pub mimir: MimirConfig,
 }
 
 impl Config {

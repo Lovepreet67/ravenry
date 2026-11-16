@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use iam_contracts::auth::jwt::verifier::JwtVerifier;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -27,6 +28,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let config = Config::load()?;
+    // init prom handler
+    let prom_handle = mimir::init("inbound");
+    let mimir_config = config.mimir.clone();
+    let shutdown_token = CancellationToken::new();
+    tokio::spawn(async move {
+        info!("Promethous metrics server started");
+        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
+    });
 
     // Fail fast if the database is unreachable.
     let pool = db::pool::connect(

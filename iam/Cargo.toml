@@ -35,3 +35,6 @@ async-trait = "0.1.92"
 subtle = "2.6.1"
 iam-contracts = { path = "../iam-contracts" }
 figment = { version = "0.10.19", features = ["toml", "env"] }
+mimir = { path = "../mimir" }
+metrics = "0.24.6"
+tokio-util = "0.7.20"
