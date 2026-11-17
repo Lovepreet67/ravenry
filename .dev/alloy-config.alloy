@@ -1,0 +1,45 @@
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// Discover Docker containers.
+discovery.docker "local" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+// Convert Docker container names into useful Loki labels.
+discovery.relabel "docker_logs" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    target_label = "environment"
+    replacement  = "development"
+  }
+}
+
+// Collect Docker container logs.
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.local.targets
+  relabel_rules = discovery.relabel.docker_logs.rules
+  labels = {
+    platform = "docker",
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+// Send logs to Loki.
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
+use mimir::{lables, names};
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use super::inbox::{mark_processed_tx, InboxMessage, InboxStore};
 use super::pipeline::{ProjectError, Projector};
@@ -80,6 +81,7 @@ impl Processor {
                     self.cfg.batch_size,
                     self.cfg.lease,
                 )
+                .instrument(tracing::info_span!("inbox.claim_batch"))
                 .await
             {
                 Ok(b) => b,
@@ -103,14 +105,21 @@ impl Processor {
 
         info!(source = %self.source, worker = %self.worker_id, "processor stopped");
     }
-
+    #[instrument(
+        skip(self, msg),
+        fields(
+            source = %self.source,
+            inbox_id = msg.id,
+            attempts = msg.attempts
+        )
+    )]
     async fn process_one(&self, msg: &InboxMessage) {
         let started = Instant::now();
         match self.run_tx(msg).await {
             Ok(()) => {
-                counter!("muninn_messages_processed_total", "pipeline" => self.source.clone())
+                counter!(names::MUNINN_MESSAGES_PROCESSED, lables::PIPELINE => self.source.clone())
                     .increment(1);
-                histogram!("muninn_processing_duration_seconds", "pipeline" => self.source.clone())
+                histogram!(names::MUNINN_MESSAGES_PROCESSING_DURATION, lables::PIPELINE => self.source.clone())
                     .record(started.elapsed().as_secs_f64());
             }
             Err(Failure::LeaseLost) => {
@@ -179,16 +188,16 @@ impl Processor {
         };
 
         counter!(
-            "muninn_message_outcomes_total",
-            "pipeline" => self.source.clone(),
-            "outcome" => kind
+            names::MUNINN_MESSAGES_OUTCOME,
+            lables::PIPELINE => self.source.clone(),
+            lables::OUTCOME => kind
         )
         .increment(1);
 
         // If this write fails (DB down) the row stays `processing` and the
         // reaper returns it to `pending` once the lease expires.
         if let Err(e) = result {
-            counter!("muninn_database_errors_total", "pipeline" => self.source.clone())
+            counter!(names::MUNINN_DATABASE_ERRORS, lables::PIPELINE => self.source.clone())
                 .increment(1);
             error!(inbox_id = id, error = %e, "could not record failure outcome");
         }

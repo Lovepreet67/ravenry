@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use metrics::{counter, gauge};
+use mimir::{lables, names};
 use streamforge::traits::Queue;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -147,7 +148,7 @@ impl Ingester {
             if deliveries.is_empty() {
                 continue;
             }
-            counter!("muninn_messages_received_total", "pipeline" => pipeline)
+            counter!(names::QUEUE_DELIVERIES_RECEIVED, lables::PIPELINE => pipeline)
                 .increment(deliveries.len() as u64);
 
             let rows: Vec<NewInboxMessage> = deliveries
@@ -163,7 +164,7 @@ impl Ingester {
                 .filter(|r| r.status == InboxStatus::Quarantined)
                 .count();
             if malformed > 0 {
-                counter!("muninn_messages_malformed_total", "pipeline" => pipeline)
+                counter!(names::QUEUE_MALFORMED_DELIVERIES_RECEIVED,lables::PIPELINE  => pipeline)
                     .increment(malformed as u64);
             }
 
@@ -171,7 +172,7 @@ impl Ingester {
             if !self.insert_with_retry(&rows, &token).await {
                 return; // cancelled before commit: NOT acked, stays pending in Redis
             }
-            counter!("muninn_messages_inboxed_total", "pipeline" => pipeline)
+            counter!(names::MUNINN_INBOX_MESSAGES, lables::PIPELINE => pipeline)
                 .increment(rows.len() as u64);
 
             // Inbox committed. ACK failures are harmless: redelivery is deduped.
@@ -193,7 +194,7 @@ impl Ingester {
             match self.store.insert_batch(rows).await {
                 Ok(_) => return true,
                 Err(e) => {
-                    counter!("muninn_database_errors_total", "pipeline" => self.pipeline.name())
+                    counter!(names::MUNINN_INBOX_DATABASE_ERRORS,lables::PIPELINE=> self.pipeline.name())
                         .increment(1);
                     error!(pipeline = self.pipeline.name(), error = %e, "inbox insert failed, retrying");
                     if token.is_cancelled() {
