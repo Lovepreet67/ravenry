@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgPool, QueryBuilder};
+use sqlx::{PgConnection, PgPool};
 
 use super::model::{InboxMessage, NewInboxMessage};
 use super::store::InboxStore;
@@ -26,31 +26,59 @@ impl InboxStore for PgInboxStore {
             return Ok(0);
         }
 
-        let mut qb = QueryBuilder::new(
-            "INSERT INTO inbox_messages (
-                source, stream_name, queue_message_id, message_type,
-                schema_version, payload, raw_payload, status, last_error
-            ) ",
-        );
+        // One Vec per column. UNNEST zips them back into rows, in order.
+        let n = messages.len();
+        let mut source = Vec::with_capacity(n);
+        let mut stream_name = Vec::with_capacity(n);
+        let mut queue_message_id = Vec::with_capacity(n);
+        let mut message_type = Vec::with_capacity(n);
+        let mut schema_version: Vec<Option<i32>> = Vec::with_capacity(n);
+        let mut payload: Vec<Option<serde_json::Value>> = Vec::with_capacity(n);
+        let mut raw_payload: Vec<Option<Vec<u8>>> = Vec::with_capacity(n);
+        let mut status = Vec::with_capacity(n);
+        let mut last_error: Vec<Option<String>> = Vec::with_capacity(n);
 
-        qb.push_values(messages, |mut row, m| {
-            row.push_bind(&m.source)
-                .push_bind(&m.stream_name)
-                .push_bind(&m.queue_message_id)
-                .push_bind(&m.message_type)
-                .push_bind(m.schema_version)
-                .push_bind(&m.payload)
-                .push_bind(&m.raw_payload)
-                .push_bind(m.status.as_str())
-                .push_bind(&m.last_error);
-        });
-        qb.push(" ON CONFLICT (stream_name, queue_message_id) DO NOTHING");
+        for m in messages {
+            source.push(m.source.as_str());
+            stream_name.push(m.stream_name.as_str());
+            queue_message_id.push(m.queue_message_id.as_str());
+            message_type.push(m.message_type.as_str());
+            schema_version.push(m.schema_version);
+            payload.push(m.payload.clone());
+            raw_payload.push(m.raw_payload.clone());
+            status.push(m.status.as_str());
+            last_error.push(m.last_error.clone());
+        }
 
         // A single statement is atomic, so no explicit transaction is needed.
-        let res = qb.build().execute(&self.pool).await?;
+        let res = sqlx::query(
+            r#"
+        INSERT INTO inbox_messages (
+            source, stream_name, queue_message_id, message_type,
+            schema_version, payload, raw_payload, status, last_error
+        )
+        SELECT * FROM UNNEST(
+            $1::text[],  $2::text[],  $3::text[], $4::text[],
+            $5::int4[],  $6::jsonb[], $7::bytea[], $8::text[],
+            $9::text[]
+        )
+        ON CONFLICT (stream_name, queue_message_id) DO NOTHING
+        "#,
+        )
+        .bind(&source)
+        .bind(&stream_name)
+        .bind(&queue_message_id)
+        .bind(&message_type)
+        .bind(&schema_version)
+        .bind(&payload)
+        .bind(&raw_payload)
+        .bind(&status)
+        .bind(&last_error)
+        .execute(&self.pool)
+        .await?;
+
         Ok(res.rows_affected())
     }
-
     async fn claim_batch(
         &self,
         source: &str,
