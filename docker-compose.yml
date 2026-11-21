@@ -79,6 +79,7 @@ services:
     ports:
       - 3001:${IAM_SERVER_PORT}
     environment:
+      CONFIG_FILE_PATH: "/app/config.toml"
       APP_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       APP_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/
@@ -87,6 +88,8 @@ services:
       APP_AUTH_CONFIG__JWT_TTL_HOURS: ${IAM_JWT_TTL_HOURS}
       APP_MIMIR__addr: 0.0.0.0:9091
       RUST_LOG: info
+    volumes:
+      - ./iam/config.toml:/app/config.toml:ro
 
     depends_on:
       database:
@@ -130,7 +133,7 @@ services:
     ports:
       - ${INBOUND_SERVER_PORT}:${INBOUND_SERVER_PORT}
     volumes:
-    - ./inbound/.env.toml:/app/config.toml:ro
+    - ./inbound/config.toml:/app/config.toml:ro
     environment:
       CONFIG_PATH: /app/config.toml
       APP_SERVER__HOST: "0.0.0.0"
@@ -161,7 +164,7 @@ services:
     extra_hosts:
     - "docker-host:192.168.65.254"
     volumes:
-    - ./outbound/.env.toml:/app/config.toml:ro
+    - ./outbound/config.toml:/app/config.toml:ro
     environment:
       CONFIG_PATH:  /app/config.toml
       APP_SERVER__HOST: "0.0.0.0"

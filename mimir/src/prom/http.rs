@@ -7,7 +7,7 @@ use axum::{
 };
 use metrics::{counter, histogram};
 
-use crate::{lables, names};
+use super::{lables, names};
 
 pub async fn track(req: Request, next: Next) -> Response {
     let route = req

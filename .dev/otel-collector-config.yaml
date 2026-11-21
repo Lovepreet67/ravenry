@@ -43,7 +43,3 @@ service:
       receivers: [spanmetrics]
       processors: [batch]
       exporters: [prometheus]
-    logs:
-      receivers: [filelog]
-      processors: [batch]
-      exporters: [otlphttp/loki]

@@ -13,3 +13,15 @@ payload_roles = ["owner", "admin"]
 [iam_config]
 http_timeout_secs = 5
 iam_cache_ttl_secs = 60
+
+[mimir]
+service_name = "muninn"
+
+[mimir.prom]
+addr = "0.0.0.0:9091"
+
+[mimir.trace]
+enabled = true
+environment = "production"
+endpoint = "http://otel-collector:4317"
+sample_ratio = 1.0

@@ -13,7 +13,6 @@ use std::time::Duration;
 use iam_contracts::auth::jwt::verifier::JwtVerifier;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 use crate::auth::keys::PublicKeyStore;
 use crate::config::Config;
@@ -23,19 +22,11 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
-
     let config = Config::load()?;
-    // init prom handler
-    let prom_handle = mimir::init("inbound");
-    let mimir_config = config.mimir.clone();
     let shutdown_token = CancellationToken::new();
-    tokio::spawn(async move {
-        info!("Promethous metrics server started");
-        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
-    });
+    // init mimir
+    let mimir_handle = mimir::init(config.mimir, shutdown_token.child_token());
+    tokio::spawn(async { mimir_handle.prom.await });
 
     // Fail fast if the database is unreachable.
     let pool = db::pool::connect(

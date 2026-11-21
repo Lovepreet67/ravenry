@@ -12,7 +12,6 @@ use std::time::Duration;
 use sqlx::postgres::PgPoolOptions;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
 use crate::core::inbox::PgInboxStore;
@@ -24,20 +23,12 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
-
     let cfg = Config::load()?;
+    let shutdown_token = CancellationToken::new();
 
     // init prom handler
-    let prom_handle = mimir::init("inbound");
-    let mimir_config = cfg.mimir.clone();
-    let shutdown_token = CancellationToken::new();
-    tokio::spawn(async move {
-        info!("Promethous metrics server started");
-        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
-    });
+    let mimir_handle = mimir::init(cfg.mimir, shutdown_token.child_token());
+    tokio::spawn(async { mimir_handle.prom.await });
 
     // Fail fast: if a dependency is down at startup, exit and let the
     // orchestrator restart us.

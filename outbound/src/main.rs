@@ -12,7 +12,6 @@ use tracing::{error, info};
 use iam_contracts::topic_registory::{RedisTopicRegistry, TopicRegistry};
 
 use streamforge::factory::build_queue;
-use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
     application::{
@@ -25,22 +24,17 @@ use crate::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    init_tracing();
-
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_owned());
 
     let config = Config::load(&config_path)
         .with_context(|| format!("failed to load config from {config_path}"))?;
 
     info!(config_path = %config_path, "Configuration loaded");
-    // init prom handler
-    let prom_handle = mimir::init("inbound");
-    let mimir_config = config.mimir.clone();
     let shutdown_token = CancellationToken::new();
-    tokio::spawn(async move {
-        info!("Promethous metrics server started");
-        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
-    });
+
+    // init mimir
+    let mimir_handle = mimir::init(config.mimir, shutdown_token.child_token());
+    tokio::spawn(async { mimir_handle.prom.await });
 
     // event queue which is populated by inbound service
     let queue = build_queue(&config.queue)
@@ -131,11 +125,4 @@ async fn main() -> Result<()> {
     info!("Outbound service stopped");
 
     Ok(())
-}
-
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_target(true)
-        .with_span_events(FmtSpan::CLOSE)
-        .init();
 }

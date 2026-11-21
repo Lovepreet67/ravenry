@@ -15,17 +15,13 @@ pub mod transport;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
     let config_path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".into());
     let config = Arc::new(config::Config::load(config_path)?);
-    // init prom handler
-    let prom_handle = mimir::init("inbound");
-    let mimir_config = config.mimir.clone();
     let shutdown_token = CancellationToken::new();
-    tokio::spawn(async move {
-        info!("Promethous metrics server started");
-        mimir::server::serve(prom_handle, mimir_config, shutdown_token).await
-    });
+
+    // init mimir
+    let mimir_handle = mimir::init(config.mimir.clone(), shutdown_token.child_token());
+    tokio::spawn(async { mimir_handle.prom.await });
 
     let queue = streamforge::factory::build_queue(&config.queue).await?;
     let projections =

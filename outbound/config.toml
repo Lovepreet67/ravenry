@@ -1,0 +1,39 @@
+[worker]
+registry_refresh_interval_secs = 30
+
+[worker.stream_worker_config]
+consumer_group = "my-consumer-group"
+consumer_name_prefix = "worker-node"
+worker_per_stream = 2
+batch_size = 10000
+idle_interval_secs = 5
+
+[worker.retry_worker_config]
+batch_size = 10000
+worker_count = 2
+poll_interval_millis = 500
+
+[worker.manual_retry_worker_config]
+consumer_group = "retry-consumer"
+consumer_name_prefix = "retry-node"
+batch_size = 1000
+worker_count = 2
+idle_interval_millisecs = 500
+
+[worker.dlq_worker_config]
+batch_size = 10000
+worker_count = 1
+poll_interval_millis = 500
+
+
+[mimir]
+service_name = "outbound"
+
+[mimir.prom]
+addr = "0.0.0.0:9091"
+
+[mimir.trace]
+enabled = true
+environment = "production"
+endpoint = "http://otel-collector:4318"
+sample_ratio = 1.0

@@ -10,7 +10,7 @@ use metrics_exporter_prometheus::PrometheusHandle;
 use subtle::ConstantTimeEq;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::MimirConfig;
+use super::config::PromConfig;
 
 #[derive(Clone)]
 struct AppState {
@@ -24,7 +24,7 @@ async fn handler(State(app_state): State<AppState>) -> String {
 
 pub async fn serve(
     handle: PrometheusHandle,
-    config: MimirConfig,
+    config: PromConfig,
     shutdown: CancellationToken,
 ) -> std::io::Result<()> {
     let state = AppState {

@@ -1,19 +1,28 @@
-use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-
 pub mod config;
-pub mod http;
-pub mod lables;
-pub mod names;
-pub mod server;
+pub mod prom;
+pub mod trace;
+use std::pin::Pin;
 
-const LATENCY_BUCKETS: &[f64] = &[0.005, 0.025, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0];
-pub fn init(service: &'static str) -> PrometheusHandle {
-    let handle = PrometheusBuilder::new()
-        .add_global_label("service", service)
-        .set_buckets_for_metric(Matcher::Suffix("_seconds".into()), LATENCY_BUCKETS)
-        .expect("Valid buckets")
-        .install_recorder()
-        .expect("metrics recorder installed twice");
-    names::describe_all();
-    handle
+pub use prom::*;
+use tokio_util::sync::CancellationToken;
+
+use crate::{config::MimirConfig, trace::gaurd::TelemetryGuard};
+
+pub struct MimirGaurd {
+    pub prom: Pin<Box<dyn Future<Output = Result<(), std::io::Error>> + Send>>,
+    pub telemetry: TelemetryGuard,
+}
+
+pub fn init(config: MimirConfig, cancellation_token: CancellationToken) -> MimirGaurd {
+    let prom_handle = prom::init(&config.service_name);
+    let y = trace::init(&config);
+    let x = Box::pin(prom::server::serve(
+        prom_handle,
+        config.prom.clone(),
+        cancellation_token,
+    ));
+    MimirGaurd {
+        prom: x,
+        telemetry: y,
+    }
 }

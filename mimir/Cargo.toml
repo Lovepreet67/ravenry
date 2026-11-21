@@ -7,7 +7,14 @@ edition = "2024"
 axum = "0.8.9"
 metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
+opentelemetry = "0.33.1"
+opentelemetry-http = "0.33.1"
+opentelemetry-otlp = "0.33.1"
+opentelemetry_sdk = "0.33.1"
 serde = { version = "1.0.229", features = ["derive"] }
 subtle = "2.6.1"
 tokio = { version = "1.54.1", features = ["net", "sync"] }
 tokio-util = "0.7.20"
+tracing = "0.1.44"
+tracing-opentelemetry = "0.34.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
