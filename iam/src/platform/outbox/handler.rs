@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use redis::aio::ConnectionManager;
 use sqlx::PgPool;
+use tracing::instrument;
 use uuid::Uuid;
 
 use iam_contracts::events::{TENANT_PROJECTION_EVENT, TENANT_PROJECTION_SCHEMA_VERSION};
@@ -10,6 +11,7 @@ use crate::platform::{
     projection::{rebuild, writer},
 };
 
+#[instrument(skip_all, fields(tenant_id=%event.aggregate_id))]
 pub async fn process_tenant_projection(
     pool: &PgPool,
     redis: &mut ConnectionManager,
