@@ -7,7 +7,7 @@ use mimir::{lables, names};
 use streamforge::traits::Queue;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn, Instrument};
 
 use super::inbox::{InboxStatus, InboxStore, NewInboxMessage};
 use super::pipeline::Pipeline;
@@ -79,6 +79,11 @@ impl Ingester {
         info!(pipeline = name, "ingester stopped");
     }
 
+    #[instrument(
+        skip(self, readers, shutdown),
+        level = "info",
+        fields(pipeline = %self.pipeline.name(), group = %self.group)
+    )]
     async fn reconcile(
         self: &Arc<Self>,
         readers: &mut HashMap<String, Reader>,
@@ -148,46 +153,74 @@ impl Ingester {
             if deliveries.is_empty() {
                 continue;
             }
-            counter!(names::QUEUE_DELIVERIES_RECEIVED, lables::PIPELINE => pipeline)
-                .increment(deliveries.len() as u64);
+            let batch_span = tracing::info_span!(
+                "ingester.batch",
+                pipeline,
+                stream = %stream,
+                group = %self.group,
+                consumer = %self.cfg.consumer_name,
+                deliveries = deliveries.len(),
+                malformed = tracing::field::Empty,
+                acked = tracing::field::Empty,
+            );
+            async {
+                counter!(names::QUEUE_DELIVERIES_RECEIVED, lables::PIPELINE => pipeline)
+                    .increment(deliveries.len() as u64);
 
-            let rows: Vec<NewInboxMessage> = deliveries
-                .iter()
-                .map(|d| {
-                    self.pipeline
-                        .prepare(&stream, queue_message_id(d), &raw_bytes(d))
-                })
-                .collect();
+                let rows: Vec<NewInboxMessage> = deliveries
+                    .iter()
+                    .map(|d| {
+                        self.pipeline
+                            .prepare(&stream, queue_message_id(d), &raw_bytes(d))
+                    })
+                    .collect();
 
-            let malformed = rows
-                .iter()
-                .filter(|r| r.status == InboxStatus::Quarantined)
-                .count();
-            if malformed > 0 {
-                counter!(names::QUEUE_MALFORMED_DELIVERIES_RECEIVED,lables::PIPELINE  => pipeline)
+                let malformed = rows
+                    .iter()
+                    .filter(|r| r.status == InboxStatus::Quarantined)
+                    .count();
+                tracing::Span::current().record("malformed", malformed);
+                if malformed > 0 {
+                    counter!(names::QUEUE_MALFORMED_DELIVERIES_RECEIVED,lables::PIPELINE  => pipeline)
                     .increment(malformed as u64);
-            }
+                }
 
-            // Durable first. DB down => retry in place (backpressure), never ACK.
-            if !self.insert_with_retry(&rows, &token).await {
-                return; // cancelled before commit: NOT acked, stays pending in Redis
-            }
-            counter!(names::MUNINN_INBOX_MESSAGES, lables::PIPELINE => pipeline)
-                .increment(rows.len() as u64);
+                // Durable first. DB down => retry in place (backpressure), never ACK.
+                if !self.insert_with_retry(&rows, &token).await {
+                    // cancelled before commit: NOT acked, stays pending in Redis
+                    tracing::Span::current().record("acked", false);
+                    return;
+                }
+                counter!(names::MUNINN_INBOX_MESSAGES, lables::PIPELINE => pipeline)
+                    .increment(rows.len() as u64);
 
-            // Inbox committed. ACK failures are harmless: redelivery is deduped.
-            let delivery_ids: Vec<_> = deliveries.iter().map(|d| queue_message_id(d)).collect();
-            if let Err(e) = self
-                .queue
-                .ack_batch(&stream, &self.group, &delivery_ids)
-                .await
-            {
-                warn!(pipeline, stream = %stream, error = %e, "ack failed, will be redelivered");
+                // Inbox committed. ACK failures are harmless: redelivery is deduped.
+                let delivery_ids: Vec<_> = deliveries.iter().map(|d| queue_message_id(d)).collect();
+                match self
+                    .queue
+                    .ack_batch(&stream, &self.group, &delivery_ids)
+                    .await
+                {
+                    Ok(()) => {
+                        tracing::Span::current().record("acked", true);
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("acked", false);
+                        warn!(error = %e, "ack failed, will be redelivered");
+                    }
+                }
+                debug!(n = deliveries.len(), "inboxed and acked");
             }
-            debug!(pipeline, stream = %stream, n = deliveries.len(), "inboxed and acked");
+            .instrument(batch_span)
+            .await;
         }
     }
 
+    #[instrument(
+        skip(self, rows, token),
+        level = "info",
+        fields(pipeline = %self.pipeline.name(), batch_len = rows.len())
+    )]
     async fn insert_with_retry(&self, rows: &[NewInboxMessage], token: &CancellationToken) -> bool {
         let mut delay = Duration::from_secs(1);
         loop {
@@ -196,7 +229,7 @@ impl Ingester {
                 Err(e) => {
                     counter!(names::MUNINN_INBOX_DATABASE_ERRORS,lables::PIPELINE=> self.pipeline.name())
                         .increment(1);
-                    error!(pipeline = self.pipeline.name(), error = %e, "inbox insert failed, retrying");
+                    error!(error = %e, "inbox insert failed, retrying");
                     if token.is_cancelled() {
                         return false;
                     }

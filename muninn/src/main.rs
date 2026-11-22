@@ -18,7 +18,7 @@ use crate::core::inbox::PgInboxStore;
 use crate::core::{
     run_reaper, Exit, Ingester, IngesterConfig, Processor, ProcessorConfig, RetryPolicy, Supervisor,
 };
-use crate::observability::{health, metrics, Health};
+use crate::observability::{health, Health};
 use crate::state::AppState;
 
 #[tokio::main]
@@ -117,14 +117,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.inbox.clone(),
             Duration::from_secs(cfg.inbox.reaper_interval_secs),
             cfg.inbox.max_attempts,
-            token.clone(),
-        ),
-    );
-    sup.spawn(
-        "inbox-gauges",
-        metrics::run_inbox_gauges(
-            pool.clone(),
-            Duration::from_secs(cfg.observability.gauge_interval_secs),
             token.clone(),
         ),
     );

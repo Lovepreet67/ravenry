@@ -31,6 +31,7 @@ impl Default for ProcessorConfig {
     }
 }
 
+#[derive(Debug)]
 enum Failure {
     Project(ProjectError),
     LeaseLost,
@@ -81,11 +82,21 @@ impl Processor {
                     self.cfg.batch_size,
                     self.cfg.lease,
                 )
-                .instrument(tracing::info_span!("inbox.claim_batch"))
+                .instrument(tracing::info_span!(
+                    "inbox.claim_batch",
+                    source = %self.source,
+                    worker = %self.worker_id,
+                    batch_size = self.cfg.batch_size,
+                ))
                 .await
             {
                 Ok(b) => b,
                 Err(e) => {
+                    counter!(
+                        names::MUNINN_DATABASE_ERRORS,
+                        lables::PIPELINE => self.source.clone()
+                    )
+                    .increment(1);
                     error!(source = %self.source, error = %e, "claim failed");
                     sleep_or_cancel(&shutdown, Duration::from_secs(2)).await;
                     continue;
@@ -96,11 +107,20 @@ impl Processor {
                 sleep_or_cancel(&shutdown, self.cfg.poll_interval).await;
                 continue;
             }
-
-            debug!(source = %self.source, n = batch.len(), "claimed batch");
-            for msg in &batch {
-                self.process_one(msg).await;
+            let batch_span = tracing::info_span!(
+                "inbox.process_batch",
+                source = %self.source,
+                worker = %self.worker_id,
+                claimed = batch.len(),
+            );
+            async {
+                debug!(n = batch.len(), "claimed batch");
+                for msg in &batch {
+                    self.process_one(msg).await;
+                }
             }
+            .instrument(batch_span)
+            .await;
         }
 
         info!(source = %self.source, worker = %self.worker_id, "processor stopped");
@@ -110,30 +130,63 @@ impl Processor {
         fields(
             source = %self.source,
             inbox_id = msg.id,
-            attempts = msg.attempts
+            attempts = msg.attempts,
+            deferrals = msg.deferrals,
+            outcome = tracing::field::Empty,
         )
     )]
     async fn process_one(&self, msg: &InboxMessage) {
+        let span = tracing::Span::current();
         let started = Instant::now();
         match self.run_tx(msg).await {
             Ok(()) => {
-                counter!(names::MUNINN_MESSAGES_PROCESSED, lables::PIPELINE => self.source.clone())
-                    .increment(1);
-                histogram!(names::MUNINN_MESSAGES_PROCESSING_DURATION, lables::PIPELINE => self.source.clone())
-                    .record(started.elapsed().as_secs_f64());
+                span.record("outcome", "processed");
+                counter!(
+                    names::MUNINN_MESSAGES_PROCESSED,
+                    lables::PIPELINE => self.source.clone()
+                )
+                .increment(1);
+                counter!(
+                    names::MUNINN_MESSAGES_OUTCOME,
+                    lables::PIPELINE => self.source.clone(),
+                    lables::OUTCOME => "processed"
+                )
+                .increment(1);
+                histogram!(
+                    names::MUNINN_MESSAGES_PROCESSING_DURATION,
+                    lables::PIPELINE => self.source.clone()
+                )
+                .record(started.elapsed().as_secs_f64());
             }
             Err(Failure::LeaseLost) => {
-                warn!(
-                    inbox_id = msg.id,
-                    "lease lost, another worker owns this row"
-                );
+                span.record("outcome", "lease_lost");
+                counter!(
+                    names::MUNINN_MESSAGES_OUTCOME,
+                    lables::PIPELINE => self.source.clone(),
+                    lables::OUTCOME => "lease_lost"
+                )
+                .increment(1);
+                histogram!(
+                    names::MUNINN_MESSAGES_PROCESSING_DURATION,
+                    lables::PIPELINE => self.source.clone()
+                )
+                .record(started.elapsed().as_secs_f64());
+                warn!("lease lost, another worker owns this row");
             }
-            Err(Failure::Project(e)) => self.handle_failure(msg, e).await,
+            Err(Failure::Project(e)) => {
+                self.handle_failure(msg, e, &span).await;
+                histogram!(
+                    names::MUNINN_MESSAGES_PROCESSING_DURATION,
+                    lables::PIPELINE => self.source.clone()
+                )
+                .record(started.elapsed().as_secs_f64());
+            }
         }
     }
 
     /// BEGIN -> project -> mark processed -> COMMIT.
     /// Any early return drops `tx`, which rolls it back.
+    #[instrument(skip(self, msg), level = "info", err(Debug))]
     async fn run_tx(&self, msg: &InboxMessage) -> Result<(), Failure> {
         let mut tx = self
             .pool
@@ -158,34 +211,41 @@ impl Processor {
 
     /// The transaction is already rolled back here, so these writes use
     /// the pool and are independent of the failed work.
-    async fn handle_failure(&self, msg: &InboxMessage, err: ProjectError) {
+    async fn handle_failure(
+        &self,
+        msg: &InboxMessage,
+        err: ProjectError,
+        parent_span: &tracing::Span,
+    ) {
         let id = msg.id;
         let (kind, result) = match err {
             ProjectError::Transient(e) => match self.retry.on_failure(msg.attempts) {
                 RetryDecision::RetryAt(at) => {
-                    warn!(inbox_id = id, attempts = msg.attempts, error = %e, "retrying");
+                    warn!(error = %e, retry_at = %at, "retrying");
                     ("retry", self.store.schedule_retry(id, &e, at).await)
                 }
                 RetryDecision::GiveUp => {
-                    error!(inbox_id = id, error = %e, "retries exhausted");
+                    error!(error = %e, "retries exhausted");
                     ("failed", self.store.mark_failed(id, &e).await)
                 }
             },
             ProjectError::Defer(e) => match self.retry.on_defer(msg.deferrals) {
                 RetryDecision::RetryAt(at) => {
-                    debug!(inbox_id = id, deferrals = msg.deferrals, reason = %e, "deferred");
+                    debug!(reason = %e, defer_until = %at, "deferred");
                     ("deferred", self.store.defer(id, &e, at).await)
                 }
                 RetryDecision::GiveUp => {
-                    error!(inbox_id = id, reason = %e, "dependency never arrived");
+                    error!(reason = %e, "dependency never arrived");
                     ("failed", self.store.mark_failed(id, &e).await)
                 }
             },
             ProjectError::Invalid(e) => {
-                error!(inbox_id = id, error = %e, "invalid message, quarantined");
+                error!(error = %e, "invalid message, quarantined");
                 ("quarantined", self.store.mark_quarantined(id, &e).await)
             }
         };
+
+        parent_span.record("outcome", kind);
 
         counter!(
             names::MUNINN_MESSAGES_OUTCOME,
@@ -197,9 +257,12 @@ impl Processor {
         // If this write fails (DB down) the row stays `processing` and the
         // reaper returns it to `pending` once the lease expires.
         if let Err(e) = result {
-            counter!(names::MUNINN_DATABASE_ERRORS, lables::PIPELINE => self.source.clone())
-                .increment(1);
-            error!(inbox_id = id, error = %e, "could not record failure outcome");
+            counter!(
+                names::MUNINN_DATABASE_ERRORS,
+                lables::PIPELINE => self.source.clone()
+            )
+            .increment(1);
+            error!(error = %e, outcome = kind, "could not record failure outcome");
         }
     }
 }
