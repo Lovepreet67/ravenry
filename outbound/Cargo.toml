@@ -35,3 +35,4 @@ tokio-util = "0.7.20"
 chrono = "0.4.45"
 mimir = { path = "../mimir" }
 metrics = "0.24.6"
+rand = "0.10.4"
