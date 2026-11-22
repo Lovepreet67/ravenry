@@ -1,4 +1,4 @@
-use axum::Router;
+use axum::{Router, middleware};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
@@ -29,5 +29,6 @@ pub fn router() -> Router<AppState> {
         .merge(topic_r)
         .nest("/roles", rr)
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(mimir::trace::server_span))
         .layer(cors)
 }

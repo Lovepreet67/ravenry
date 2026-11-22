@@ -12,6 +12,7 @@ pub fn build(state: AppState) -> Router {
         .merge(deliveries::routes())
         .layer(TraceLayer::new_for_http())
         .layer(cors::CorsLayer::permissive())
+        .layer(middleware::from_fn(mimir::trace::server_span))
         .layer(middleware::from_fn(track))
         .with_state(state)
 }

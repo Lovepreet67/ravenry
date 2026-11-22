@@ -1,5 +1,5 @@
 [mimir]
-service_name = "muninn"
+service_name = "iam"
 
 [mimir.prom]
 addr = "0.0.0.0:9091"

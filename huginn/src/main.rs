@@ -36,8 +36,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // ADJUST: build the verifier the way your other services do
-    // (keys, issuer, audience).
     let public_key = PublicKeyStore::fetch(&config.iam_config.public_key_url).await?;
     let jwt_verifier = Arc::new(JwtVerifier::from_pem(public_key.as_bytes())?);
 

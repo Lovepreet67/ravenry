@@ -5,7 +5,6 @@ use axum::middleware;
 use iam_contracts::auth::jwt::verifier::JwtVerifier;
 use mimir::http::track;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
 
 pub mod application;
 pub mod config;

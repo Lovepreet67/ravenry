@@ -1,4 +1,5 @@
 use axum::{
+    middleware,
     routing::{get, post},
     Router,
 };
@@ -15,4 +16,5 @@ pub fn get_router() -> Router<AppState> {
         .route("/tenants/{tenant_id}/retry", post(retry))
         .route("/health", get(health))
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(mimir::trace::server_span))
 }
