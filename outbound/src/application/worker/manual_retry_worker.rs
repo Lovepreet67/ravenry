@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use streamforge::traits::Queue;
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::{debug, error, info, warn, Instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -32,138 +32,181 @@ impl ManualRetryWorker {
         let handle = tokio::spawn(async move {
             let consumer_name = Arc::new(format!("{}_{}", config.consumer_name_prefix, id));
             let idle_interval = Duration::from_millis(config.idle_interval_millisecs);
+
+            info!(
+                worker_id = %id,
+                stream = %stream,
+                group = %config.consumer_group,
+                consumer = %consumer_name,
+                "Manual retry worker started"
+            );
+
             while !token.is_cancelled() {
                 let deliveries = match queue
                     .consume(
                         &stream,
                         &config.consumer_group,
-                        consumer_name.clone().as_str(),
+                        consumer_name.as_str(),
                         config.batch_size,
-                        1000,
+                        100,
                     )
                     .await
                 {
                     Ok(deliveries) => deliveries,
                     Err(err) => {
-                        warn!(
-                            stream = %stream,
-                            consumer = %consumer_name,
-                            error = %err,
-                            "Consume failed"
-                        );
-
-                        sleep_or_cancel(&token, Duration::from_secs(1)).await;
-
-                        return;
+                        // warn!(
+                        //     worker_id = %id,
+                        //     stream = %stream,
+                        //     consumer = %consumer_name,
+                        //     error = %err,
+                        //     "Consume failed"
+                        // );
+                        sleep_or_cancel(&token, idle_interval).await;
+                        continue;
                     }
                 };
+
                 if deliveries.is_empty() {
                     sleep_or_cancel(&token, idle_interval).await;
                     continue;
                 }
-                let mut join_set = JoinSet::new();
-                for delivery in deliveries {
-                    if token.is_cancelled() {
-                        break;
-                    }
-                    let queue = queue.clone();
-                    let stream = stream.clone();
-                    let config = config.clone();
-                    let store = store.clone();
-                    let delivery_service = delivery_service.clone();
-                    let retry_event: iam_contracts::events::RetryEvent =
-                        match serde_json::from_slice(&delivery.message.payload) {
-                            Ok(event) => event,
-                            Err(err) => {
-                                warn!(
-                                    stream = %stream,
-                                    queue_message_id = %delivery.delivery_id,
-                                    error = %err,
-                                    "Invalid retry event"
-                                );
-                                continue;
-                            }
-                        };
-                    join_set.spawn(async move {
-                        let request = match store
-                            .as_ref()
-                            .get_delivery_request(
-                                retry_event.tenant_id,
-                                retry_event.destination_id,
-                                retry_event.delivery_id,
-                            )
-                            .await
-                        {
-                            Ok(Some(request)) => request,
 
-                            Ok(None) => {
-                                warn!(
-                                    tenant_id = %retry_event.tenant_id,
-                                    destination_id = %retry_event.destination_id,
-                                    delivery_id = %retry_event.delivery_id,
-                                    "Retry request is missing from Redis"
-                                );
-                                return;
-                            }
+                let batch_span = tracing::info_span!(
+                    "manual_retry.process_batch",
+                    worker_id = %id,
+                    stream = %stream,
+                    group = %config.consumer_group,
+                    consumer = %consumer_name,
+                    deliveries = deliveries.len(),
+                    spawned = tracing::field::Empty,
+                );
 
-                            Err(error) => {
-                                error!(
-                                    delivery_id = %retry_event.delivery_id,
-                                    error = %error,
-                                    "Failed to load retry request"
-                                );
-                                return;
-                            }
-                        };
+                async {
+                    let mut join_set = JoinSet::new();
+                    let mut spawned = 0usize;
 
-                        match delivery_service.retry_delivery_once(request).await {
-                            Ok(()) => {
-                                if let Err(err) = queue
-                                    .ack(&stream, &config.consumer_group, &delivery.delivery_id)
-                                    .await
-                                {
+                    for delivery in deliveries {
+                        if token.is_cancelled() {
+                            break;
+                        }
+
+                        let queue = queue.clone();
+                        let stream = stream.clone();
+                        let config = config.clone();
+                        let store = store.clone();
+                        let delivery_service = delivery_service.clone();
+
+                        let retry_event: iam_contracts::events::RetryEvent =
+                            match serde_json::from_slice(&delivery.message.payload) {
+                                Ok(event) => event,
+                                Err(err) => {
                                     warn!(
-                                        stream = %stream,
                                         queue_message_id = %delivery.delivery_id,
                                         error = %err,
-                                        "Source event ACK failed"
+                                        "Invalid retry event"
                                     );
+                                    continue;
+                                }
+                            };
+
+                        let msg_span = tracing::info_span!(
+                            "manual_retry.process_one",
+                            queue_message_id = %delivery.delivery_id,
+                            tenant_id = %retry_event.tenant_id,
+                            destination_id = %retry_event.destination_id,
+                            delivery_id = %retry_event.delivery_id,
+                            outcome = tracing::field::Empty,
+                        );
+
+                        spawned += 1;
+
+                        let task_fut = async move {
+                            let current_span = tracing::Span::current();
+
+                            let request = match store
+                                .as_ref()
+                                .get_delivery_request(
+                                    retry_event.tenant_id,
+                                    retry_event.destination_id,
+                                    retry_event.delivery_id,
+                                )
+                                .await
+                            {
+                                Ok(Some(request)) => request,
+                                Ok(None) => {
+                                    current_span.record("outcome", "missing_request");
+                                    warn!("Retry request is missing from Redis");
                                     return;
                                 }
-                            }
-                            Err(error) => {
-                                error!(
-                                    delivery_id = %retry_event.delivery_id,
-                                    error = %error,
-                                    "Retry execution failed"
-                                );
+                                Err(error) => {
+                                    current_span.record("outcome", "store_error");
+                                    error!(error = %error, "Failed to load retry request");
+                                    return;
+                                }
+                            };
+
+                            match delivery_service.retry_delivery_once(request).await {
+                                Ok(()) => {
+                                    if let Err(err) = queue
+                                        .ack(&stream, &config.consumer_group, &delivery.delivery_id)
+                                        .await
+                                    {
+                                        current_span.record("outcome", "ack_failed");
+                                        warn!(error = %err, "Source event ACK failed");
+                                        return;
+                                    }
+                                    current_span.record("outcome", "retried_and_acked");
+                                    debug!("Manual retry succeeded and acked");
+                                }
+                                Err(error) => {
+                                    current_span.record("outcome", "retry_failed");
+                                    error!(error = %error, "Retry execution failed");
+                                }
                             }
                         }
-                    });
-                }
-                while let Some(res) = join_set.join_next().await {
-                    if let Err(err) = res {
-                        warn!(error=%err,"Worker task panicked or failed")
+                        .instrument(msg_span);
+
+                        join_set.spawn(task_fut);
+                    }
+
+                    tracing::Span::current().record("spawned", spawned);
+
+                    while let Some(res) = join_set.join_next().await {
+                        if let Err(err) = res {
+                            warn!(error = %err, "Worker task panicked or failed");
+                        }
                     }
                 }
+                .instrument(batch_span)
+                .await;
             }
+
+            info!(
+                worker_id = %id,
+                stream = %stream,
+                consumer = %consumer_name,
+                "Manual retry worker stopped"
+            );
         });
+
         Self {
             id,
             token: token_clone,
             handle,
         }
     }
+
     pub fn is_finished(&self) -> bool {
         self.handle.is_finished()
     }
+
     pub async fn cancel(self) {
         self.token.cancel();
         if let Err(err) = self.handle.await {
             warn!(
-                stream_worker = %self.id,
+                manual_retry_worker = %self.id,
                 error = %err,
-                "Stream worker join failed"
+                "Manual retry worker join failed"
             );
         }
     }

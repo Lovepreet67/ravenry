@@ -21,7 +21,6 @@ impl QueueAdmin for RedisStream {
             .arg("MKSTREAM")
             .query_async(&mut conn)
             .await;
-
         match result {
             Ok(_) => Ok(()),
             Err(error) if error.code() == Some("BUSYGROUP") => Ok(()),

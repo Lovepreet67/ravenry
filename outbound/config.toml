@@ -17,8 +17,8 @@ poll_interval_millis = 500
 consumer_group = "retry-consumer"
 consumer_name_prefix = "retry-node"
 batch_size = 1000
-worker_count = 2
-idle_interval_millisecs = 500
+worker_count = 1
+idle_interval_millisecs = 5000
 
 [worker.dlq_worker_config]
 batch_size = 10000

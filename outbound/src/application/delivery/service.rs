@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -36,6 +36,7 @@ impl DeliveryService {
         }
     }
 
+    #[instrument(skip_all,fields(delivery_id=%request.delivery_id))]
     pub async fn register_delivery(&self, request: &DeliveryRequest) -> anyhow::Result<bool> {
         self.store
             .register_delivery(&request)
@@ -105,6 +106,7 @@ impl DeliveryService {
         self.execute_delivery_once(request).await
     }
 
+    #[instrument(skip_all,fields(delivery_id=%request.delivery_id))]
     pub async fn execute_delivery(&self, request: DeliveryRequest) -> anyhow::Result<()> {
         let attempt_id = Uuid::new_v4();
 

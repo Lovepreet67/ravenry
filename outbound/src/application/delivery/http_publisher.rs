@@ -3,6 +3,7 @@ use std::time::Duration;
 use chrono::Utc;
 use iam_contracts::delivery_outcome::DeliveryOutcome;
 use reqwest::Client;
+use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::application::delivery::model::DeliveryRequest;
@@ -21,6 +22,7 @@ impl HttpPublisher {
         Ok(Self { client })
     }
 
+    #[instrument(skip_all,fields(delivery_id=%request.delivery_id))]
     pub async fn deliver(
         &self,
         request: &DeliveryRequest,

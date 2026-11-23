@@ -4,7 +4,7 @@ use iam_contracts::streams;
 use streamforge::{traits::Queue, Message};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::{debug, error, info, warn, Instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -26,9 +26,9 @@ impl DlqWorker {
         self.token.cancel();
         if let Err(err) = self.handle.await {
             warn!(
-                stream_worker = %self.id,
+                dlq_worker = %self.id,
                 error = %err,
-                "Stream worker join failed"
+                "DLQ worker join failed"
             );
         }
     }
@@ -44,6 +44,16 @@ impl DlqWorker {
         let token = shutdown_token.clone();
         let handle = tokio::task::spawn(async move {
             let poll_interval = Duration::from_millis(config.poll_interval_millis);
+            let queue_destination = streams::destination_dlq(tenant_id, destination_id);
+
+            info!(
+                worker_id = %id,
+                tenant_id = %tenant_id,
+                destination_id = %destination_id,
+                queue_destination = %queue_destination,
+                "DLQ worker started"
+            );
+
             while !shutdown_token.is_cancelled() {
                 let messages = match delivery_store
                     .get_pending_dlq_messages(tenant_id, destination_id, config.batch_size)
@@ -51,66 +61,115 @@ impl DlqWorker {
                 {
                     Ok(messages) => messages,
                     Err(error) => {
-                        error!(
-                            tenant_id = %tenant_id,
-                            destination_id = %destination_id,
-                            error = %error,
-                            "Failed to load pending DLQ messages"
-                        );
+                        // error!(
+                        //     worker_id = %id,
+                        //     tenant_id = %tenant_id,
+                        //     destination_id = %destination_id,
+                        //     error = %error,
+                        //     "Failed to load pending DLQ messages"
+                        // );
+                        sleep_or_cancel(&shutdown_token, poll_interval).await;
                         continue;
                     }
                 };
 
-                let queue_destination = streams::destination_dlq(tenant_id, destination_id);
+                if messages.is_empty() {
+                    sleep_or_cancel(&shutdown_token, poll_interval).await;
+                    continue;
+                }
 
-                for (delivery_id, dlq_message) in messages {
-                    let payload = match serde_json::to_vec(&dlq_message) {
-                        Ok(payload) => payload,
-                        Err(error) => {
-                            error!(
-                                delivery_id = %delivery_id,
-                                error = %error,
-                                "Failed to serialize DLQ message"
-                            );
-                            continue;
-                        }
-                    };
+                let batch_span = tracing::info_span!(
+                    "dlq.process_batch",
+                    worker_id = %id,
+                    tenant_id = %tenant_id,
+                    destination_id = %destination_id,
+                    queue_destination = %queue_destination,
+                    batch_len = messages.len(),
+                );
 
-                    let message = Message::new(payload)
-                        .with_id(delivery_id.to_string())
-                        .with_header("message_type", "delivery_dlq")
-                        .with_header("schema_version", "1")
-                        .with_header("delivery_id", delivery_id.to_string())
-                        .with_header("tenant_id", tenant_id.to_string())
-                        .with_header("destination_id", destination_id.to_string());
+                async {
+                    for (delivery_id, dlq_message) in messages {
+                        let msg_span = tracing::debug_span!(
+                            "dlq.publish_message",
+                            delivery_id = %delivery_id,
+                            outcome = tracing::field::Empty,
+                        );
 
-                    match queue.publish(&queue_destination, message).await {
-                        Ok(_) => {
-                            if let Err(error) = delivery_store
-                                .acknowledge_dlq_message(tenant_id, destination_id, delivery_id)
-                                .await
-                            {
-                                error!(
-                                    delivery_id = %delivery_id,
-                                    error = %error,
-                                    "DLQ published but Redis acknowledgement failed"
-                                );
+                        let payload = match serde_json::to_vec(&dlq_message) {
+                            Ok(payload) => payload,
+                            Err(error) => {
+                                msg_span.record("outcome", "serialize_failed");
+                                msg_span.in_scope(|| {
+                                    error!(error = %error, "Failed to serialize DLQ message");
+                                });
                                 continue;
                             }
-                        }
+                        };
 
-                        Err(error) => {
-                            warn!(
-                                delivery_id = %delivery_id,
-                                error = %error,
-                                "DLQ publication failed; message remains pending"
-                            );
+                        let message = Message::new(payload)
+                            .with_id(delivery_id.to_string())
+                            .with_header("message_type", "delivery_dlq")
+                            .with_header("schema_version", "1")
+                            .with_header("delivery_id", delivery_id.to_string())
+                            .with_header("tenant_id", tenant_id.to_string())
+                            .with_header("destination_id", destination_id.to_string());
+
+                        match queue
+                            .publish(&queue_destination, message)
+                            .instrument(msg_span.clone())
+                            .await
+                        {
+                            Ok(_) => {
+                                match delivery_store
+                                    .acknowledge_dlq_message(
+                                        tenant_id,
+                                        destination_id,
+                                        delivery_id,
+                                    )
+                                    .instrument(msg_span.clone())
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        msg_span.record("outcome", "acked");
+                                        debug!(parent: &msg_span, "DLQ message published and acked");
+                                    }
+                                    Err(error) => {
+                                        msg_span.record("outcome", "ack_failed");
+                                        msg_span.in_scope(|| {
+                                            error!(
+                                                error = %error,
+                                                "DLQ published but Redis acknowledgement failed"
+                                            );
+                                        });
+                                    }
+                                }
+                            }
+                            Err(error) => {
+                                msg_span.record("outcome", "publish_failed");
+                                msg_span.in_scope(|| {
+                                    warn!(
+                                        error = %error,
+                                        "DLQ publication failed; message remains pending"
+                                    );
+                                });
+                            }
                         }
                     }
-                    sleep_or_cancel(&shutdown_token, poll_interval).await;
                 }
+                .instrument(batch_span)
+                .await;
+
+                sleep_or_cancel(&shutdown_token, poll_interval).await;
             }
+
+            info!(
+                worker_id = %id,
+                tenant_id = %tenant_id,
+                destination_id = %destination_id,
+                "DLQ worker stopped"
+            );
         });
+
         Self { id, token, handle }
     }
 }

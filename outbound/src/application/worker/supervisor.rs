@@ -6,9 +6,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use iam_contracts::topic_registory::TopicRegistry;
+use metrics::gauge;
+use mimir::names::METRIC_ACTIVE_WORKERS;
 use streamforge::traits::Queue;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -72,10 +74,53 @@ impl WorkerSupervisor {
             {
                 warn!(error=%err, "Worker reconcilation failed");
             }
+            self.record_worker_gauges(
+                &stream_workers,
+                &retry_workers,
+                &dlq_workers,
+                &manual_retry_workers,
+            );
             sleep_or_cancel(&self.shutdown_token, reconcile_interval).await;
         }
+        // Reset gauges as workers are stopped on shutdown
+        stream_workers.clear();
+        retry_workers.clear();
+        dlq_workers.clear();
+        manual_retry_workers.clear();
+        self.record_worker_gauges(
+            &stream_workers,
+            &retry_workers,
+            &dlq_workers,
+            &manual_retry_workers,
+        );
+    }
+    fn record_worker_gauges(
+        &self,
+        stream_workers: &HashMap<String, StreamWorker>,
+        retry_workers: &HashMap<(Uuid, Uuid), RetryWorker>,
+        dlq_workers: &HashMap<(Uuid, Uuid), DlqWorker>,
+        manual_retry_workers: &HashMap<Uuid, ManualRetryWorker>,
+    ) {
+        gauge!(METRIC_ACTIVE_WORKERS, mimir::lables::WORKER_TYPE => "stream")
+            .set(stream_workers.len() as f64);
+        gauge!(METRIC_ACTIVE_WORKERS,mimir::lables::WORKER_TYPE => "retry")
+            .set(retry_workers.len() as f64);
+        gauge!(METRIC_ACTIVE_WORKERS, mimir::lables::WORKER_TYPE => "dlq")
+            .set(dlq_workers.len() as f64);
+        gauge!(METRIC_ACTIVE_WORKERS, mimir::lables::WORKER_TYPE => "manual_retry")
+            .set(manual_retry_workers.len() as f64);
     }
 
+    #[instrument(
+        skip(self, stream_workers, retry_workers, dlq_workers, manaul_retry_workers),
+        level = "debug",
+        fields(
+            active_streams = tracing::field::Empty,
+            active_retries = tracing::field::Empty,
+            active_dlqs = tracing::field::Empty,
+            active_manual_retries = tracing::field::Empty,
+        )
+    )]
     async fn reconcile_consumer(
         self: &Arc<Self>,
         stream_workers: &mut HashMap<String, StreamWorker>,
@@ -129,6 +174,13 @@ impl WorkerSupervisor {
                 self.config.stream_worker_config.clone(),
                 token,
             );
+            debug!(
+                worker_id = %id,
+                tenant_id = %stream.tenant_id,
+                topic_id = %stream.topic_id,
+                destination = %destination_key,
+                "Spawned stream worker"
+            );
             stream_workers.insert(destination_key, worker);
         }
         // 2. reconcile the retry worker
@@ -165,6 +217,11 @@ impl WorkerSupervisor {
             .collect();
         for key in obsolute_retry_wokers {
             if let Some(woker) = retry_workers.remove(&key) {
+                debug!(
+                    tenant_id = %key.0,
+                    destination_id = %key.1,
+                    "Stopping obsolete or finished retry worker"
+                );
                 woker.cancel().await;
             }
         }
@@ -185,6 +242,12 @@ impl WorkerSupervisor {
                 self.delivery_service.clone(),
                 self.config.retry_worker_config.clone(),
                 token,
+            );
+            debug!(
+                worker_id = %id,
+                tenant_id = %worker_key.0,
+                destination_id = %worker_key.1,
+                "Spawned retry worker"
             );
             retry_workers.insert(worker_key, worker);
         }
@@ -207,6 +270,11 @@ impl WorkerSupervisor {
             .collect();
         for odw in obsolute_dlq_workers {
             if let Some(worker) = dlq_workers.remove(&odw) {
+                debug!(
+                    tenant_id = %odw.0,
+                    destination_id = %odw.1,
+                    "Stopping obsolete or finished dlq worker"
+                );
                 worker.cancel().await;
             }
         }
@@ -227,6 +295,12 @@ impl WorkerSupervisor {
                 self.config.dlq_worker_config.clone(),
                 self.delivery_store.clone(),
                 token,
+            );
+            debug!(
+                worker_id = %id,
+                tenant_id = %worker_key.0,
+                destination_id = %worker_key.1,
+                "Spawned dlq worker"
             );
             dlq_workers.insert(worker_key, worker);
         }
@@ -263,6 +337,11 @@ impl WorkerSupervisor {
             );
             manaul_retry_workers.insert(id, worker);
         }
+        let span = tracing::Span::current();
+        span.record("active_streams", stream_workers.len());
+        span.record("active_retries", retry_workers.len());
+        span.record("active_dlqs", dlq_workers.len());
+        span.record("active_manual_retries", manaul_retry_workers.len());
         Ok(())
     }
 }

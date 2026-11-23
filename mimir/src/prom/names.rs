@@ -25,6 +25,7 @@ pub const MUNINN_LEASE_LOSSES: &str = "muninn_lease_losses";
 pub const HTTP_REQUESTS: &str = "ravenary_http_requests_total";
 pub const HTTP_DURATION: &str = "ravenary_http_request_duration_seconds";
 
+pub const METRIC_ACTIVE_WORKERS: &str = "worker_supervisor_active_workers";
 pub fn describe_all() {
     describe_counter!(EVENTS_RECEIVED, "Total events recieved");
     describe_counter!(EVENTS_PUBLISHED, "Total events published");

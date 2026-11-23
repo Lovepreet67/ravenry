@@ -4,7 +4,7 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use iam_contracts::{delivery_outcome::DeliveryOutcome, keys, streams::DELIVERY_RESULTS};
 use redis::{aio::ConnectionManager, AsyncCommands, Script};
-use tracing::{error, info};
+use tracing::{error, info, instrument};
 use uuid::Uuid;
 
 use crate::application::delivery::model::{
@@ -57,6 +57,7 @@ impl DeliveryStore {
     ///
     /// Returns true when the delivery was newly registered.
     /// Returns false when the delivery already exists.
+    #[instrument(skip_all,fields(delivery_id=%request.delivery_id))]
     pub async fn register_delivery(&self, request: &DeliveryRequest) -> anyhow::Result<bool> {
         let mut connection = self.connection.clone();
 
@@ -99,6 +100,7 @@ impl DeliveryStore {
     ///
     /// `lease_duration` should be longer than the maximum HTTP request
     /// timeout, with enough margin for Redis completion.
+    #[instrument(skip_all,fields(delivery_id=%delivery_id))]
     pub async fn acquire_delivery(
         &self,
         tenant_id: Uuid,
@@ -188,6 +190,7 @@ impl DeliveryStore {
     /// Atomically completes an attempt, updates delivery state,
     /// schedules a retry or records a pending DLQ message, and emits
     /// the outcome to DELIVERY_RESULTS.
+    #[instrument(skip_all)]
     pub async fn complete_attempt(
         &self,
         tenant_id: Uuid,

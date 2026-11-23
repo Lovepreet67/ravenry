@@ -25,7 +25,7 @@ use crate::{
 #[tokio::main]
 async fn main() -> Result<()> {
     let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_owned());
-
+    info!("Reading config from file {}", config_path);
     let config = Config::load(&config_path)
         .with_context(|| format!("failed to load config from {config_path}"))?;
 

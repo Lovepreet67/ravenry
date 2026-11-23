@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 fn default_retry_poll_interval_millis() -> u64 {
-    500
+    5000
 }
 
 fn default_dlq_poll_interval_millis() -> u64 {

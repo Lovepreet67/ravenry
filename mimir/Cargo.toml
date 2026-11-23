@@ -17,4 +17,4 @@ tokio = { version = "1.54.1", features = ["net", "sync"] }
 tokio-util = "0.7.20"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.34.0"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

@@ -53,6 +53,8 @@ pub fn init(config: &MimirConfig) -> TelemetryGuard {
     });
 
     let fmt_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_current_span(true)
         .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")));
 
     // The otel layer must be added first so its subscriber type resolves to Registry.
