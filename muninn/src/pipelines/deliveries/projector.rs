@@ -163,6 +163,7 @@ mod tests {
             status_code: Some(if success { 200 } else { 500 }),
             error: None,
             attempted_at: Utc::now(),
+            next_attempt_at: None,
         }
     }
 

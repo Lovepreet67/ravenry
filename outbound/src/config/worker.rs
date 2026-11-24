@@ -20,6 +20,15 @@ pub struct StreamWorkerConfig {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct DeliveryWorkerConfig {
+    pub consumer_group: String,
+    pub consumer_name_prefix: String,
+    pub worker_per_stream: usize,
+    pub batch_size: usize,
+    pub idle_interval_secs: u64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct RetryWorkerConfig {
     pub batch_size: usize,
     pub worker_count: usize,
@@ -52,6 +61,7 @@ pub struct DlqWorkerConfig {
 pub struct WorkerConfig {
     pub registry_refresh_interval_secs: u64,
     pub stream_worker_config: StreamWorkerConfig,
+    pub delivery_worker_config: DeliveryWorkerConfig,
     pub dlq_worker_config: DlqWorkerConfig,
     pub retry_worker_config: RetryWorkerConfig,
     pub manual_retry_worker_config: ManualRetryWorkerConfig,
@@ -62,6 +72,7 @@ pub struct WorkerRuntimeConfig {
     pub registry_refresh_interval_secs: u64,
 
     pub stream_worker_config: Arc<StreamWorkerConfig>,
+    pub delivery_worker_config: Arc<DeliveryWorkerConfig>,
     pub dlq_worker_config: Arc<DlqWorkerConfig>,
     pub retry_worker_config: Arc<RetryWorkerConfig>,
     pub manual_retry_worker_config: Arc<ManualRetryWorkerConfig>,
@@ -72,6 +83,7 @@ impl From<WorkerConfig> for WorkerRuntimeConfig {
         Self {
             registry_refresh_interval_secs: config.registry_refresh_interval_secs,
             stream_worker_config: Arc::new(config.stream_worker_config),
+            delivery_worker_config: Arc::new(config.delivery_worker_config),
             dlq_worker_config: Arc::new(config.dlq_worker_config),
             retry_worker_config: Arc::new(config.retry_worker_config),
             manual_retry_worker_config: Arc::new(config.manual_retry_worker_config),

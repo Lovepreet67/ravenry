@@ -8,6 +8,13 @@ worker_per_stream = 2
 batch_size = 10000
 idle_interval_secs = 5
 
+[worker.delivery_worker_config]
+consumer_group = "delivery-consumer-group"
+consumer_name_prefix = "worker-node"
+worker_per_stream = 2
+batch_size = 10000
+idle_interval_secs = 5
+
 [worker.retry_worker_config]
 batch_size = 10000
 worker_count = 2

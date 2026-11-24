@@ -34,4 +34,36 @@ impl Producer for RedisStream {
             .await
             .map_err(|e| QueueError::Publish(e.to_string()))
     }
+    async fn publish_batch(&self, messages: Vec<(&str, Message)>) -> Result<Vec<String>> {
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.conn.clone();
+        let mut pipe = redis::pipe();
+
+        for (destination, message) in messages {
+            let headers = serde_json::to_string(&message.headers)
+                .map_err(|e| QueueError::Publish(e.to_string()))?;
+
+            let mut command = redis::cmd("XADD");
+            command
+                .arg(destination)
+                .arg("*")
+                .arg("payload")
+                .arg(&message.payload)
+                .arg("headers")
+                .arg(headers);
+
+            if let Some(id) = &message.id {
+                command.arg("message_id").arg(id);
+            }
+
+            pipe.add_command(command);
+        }
+
+        pipe.query_async::<Vec<String>>(&mut conn)
+            .await
+            .map_err(|e| QueueError::Publish(e.to_string()))
+    }
 }

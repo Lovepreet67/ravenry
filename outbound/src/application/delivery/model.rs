@@ -43,6 +43,7 @@ pub struct DeliveryRequest {
     pub destination_id: Uuid,
     pub payload: serde_json::Value,
     pub destination_config: Arc<ResolvedDestination>,
+    pub curr_attempt: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

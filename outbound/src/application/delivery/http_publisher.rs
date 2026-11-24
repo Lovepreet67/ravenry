@@ -64,6 +64,7 @@ impl HttpPublisher {
                         Some(format!("destination returned HTTP {status}"))
                     },
                     attempted_at,
+                    next_attempt_at: None,
                 }
             }
 
@@ -81,6 +82,7 @@ impl HttpPublisher {
                 status_code: err.status().map(|status| status.as_u16()),
                 error: Some(err.to_string()),
                 attempted_at,
+                next_attempt_at: None,
             },
         }
     }

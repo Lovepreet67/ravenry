@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
+use iam_contracts::delivery_outcome::DeliveryOutcome;
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
@@ -74,7 +75,8 @@ impl DeliveryService {
             return Ok(());
         }
 
-        self.execute_delivery(request).await
+        self.execute_delivery(request).await?;
+        Ok(())
     }
 
     /// Manually retries a delivery exactly once.
@@ -107,123 +109,35 @@ impl DeliveryService {
     }
 
     #[instrument(skip_all,fields(delivery_id=%request.delivery_id))]
-    pub async fn execute_delivery(&self, request: DeliveryRequest) -> anyhow::Result<()> {
+    pub async fn execute_delivery(
+        &self,
+        request: DeliveryRequest,
+    ) -> anyhow::Result<DeliveryOutcome> {
         let attempt_id = Uuid::new_v4();
 
-        let acquired = self
-            .store
-            .acquire_delivery(
-                request.tenant_id,
-                request.destination_id,
-                request.delivery_id,
-                attempt_id,
-                DELIVERY_LEASE,
-            )
-            .await
-            .context("failed to acquire delivery lease")?;
-
-        let attempt = match acquired {
-            AcquireResult::Acquired { attempt } => attempt,
-
-            AcquireResult::Busy => {
-                debug!(
-                    delivery_id = %request.delivery_id,
-                    "Delivery is already being processed"
-                );
-                return Ok(());
-            }
-
-            AcquireResult::Missing => {
-                bail!("delivery {} is missing from Redis", request.delivery_id);
-            }
-
-            AcquireResult::AlreadySucceeded => {
-                debug!(
-                    delivery_id = %request.delivery_id,
-                    "Delivery has already succeeded"
-                );
-                return Ok(());
-            }
-
-            AcquireResult::AlreadyFailed => {
-                debug!(
-                    delivery_id = %request.delivery_id,
-                    "Delivery has already reached terminal failure"
-                );
-                return Ok(());
-            }
-
-            AcquireResult::InvalidState => {
-                bail!("delivery {} has an invalid state", request.delivery_id);
-            }
-        };
-
-        let mut outcome = self.publisher.deliver(&request, attempt_id, attempt).await;
+        let mut outcome = self
+            .publisher
+            .deliver(&request, attempt_id, request.curr_attempt.unwrap_or(1))
+            .await;
+        if outcome.success {
+            return Ok(outcome);
+        }
         let retry_policy = RetryPolicy::new(
             request.destination_config.config.max_attempts,
             request.destination_config.config.retry_delay_ms,
         );
 
-        let next_attempt_at = if outcome.success {
-            None
-        } else {
-            match retry_policy.on_failure(attempt) {
-                RetryDecision::RetryAt(next_attempt_at) => {
-                    outcome.will_retry = true;
-                    Some(next_attempt_at)
-                }
-
-                RetryDecision::GiveUp => {
-                    outcome.will_retry = false;
-                    None
-                }
-            }
-        };
-
-        let completion = self
-            .store
-            .complete_attempt(
-                request.tenant_id,
-                request.destination_id,
-                &outcome,
-                next_attempt_at,
-                &request,
-            )
-            .await
-            .context("failed to complete delivery attempt")?;
-
-        match completion {
-            CompleteAttemptResult::Completed => {
-                info!(
-                    delivery_id = %request.delivery_id,
-                    attempt,
-                    success = outcome.success,
-                    will_retry = outcome.will_retry,
-                    "Delivery attempt completed"
-                );
-                Ok(())
+        match retry_policy.on_failure(request.curr_attempt.unwrap_or(1)) {
+            RetryDecision::RetryAt(next_attempt_at) => {
+                outcome.will_retry = true;
+                outcome.next_attempt_at = Some(next_attempt_at);
             }
 
-            CompleteAttemptResult::Missing => {
-                bail!(
-                    "delivery {} disappeared before completion",
-                    request.delivery_id
-                );
-            }
-
-            CompleteAttemptResult::NotProcessing => {
-                bail!("delivery {} is no longer processing", request.delivery_id);
-            }
-
-            CompleteAttemptResult::StaleAttempt => {
-                warn!(
-                    delivery_id = %request.delivery_id,
-                    attempt_id = %attempt_id,
-                    "Ignoring completion from a stale delivery attempt"
-                );
-                Ok(())
+            RetryDecision::GiveUp => {
+                outcome.will_retry = false;
             }
         }
+        Ok(outcome)
     }
 
     /// Executes exactly one delivery attempt without scheduling retries.

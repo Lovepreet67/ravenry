@@ -51,6 +51,7 @@ pub fn tenant_projection_keys(tenant_id: Uuid) -> String {
 
 /// Registry of active tenant/topic pairs available for event consumption.
 pub const ACTIVE_TOPIC_STREAMS: &str = "v1:registry:active-topic-streams";
+pub const ACTIVE_DESTINATION_STREAMS: &str = "v1:registry:active-destination-streams";
 
 /// Redis hash containing the current state of a delivery.
 ///

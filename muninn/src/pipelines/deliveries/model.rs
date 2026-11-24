@@ -58,6 +58,7 @@ mod tests {
             status_code: Some(500),
             error: None,
             attempted_at: Utc::now(),
+            next_attempt_at: None,
         }
     }
 

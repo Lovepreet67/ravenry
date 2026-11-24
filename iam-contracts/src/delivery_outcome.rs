@@ -17,4 +17,14 @@ pub struct DeliveryOutcome {
     pub status_code: Option<u16>,
     pub error: Option<String>,
     pub attempted_at: DateTime<Utc>,
+    pub next_attempt_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventDestinationError {
+    pub event_id: Uuid,
+    pub tenant_id: Uuid,
+    pub topic_id: Uuid,
+    pub destination_id: Uuid,
+    pub error: String,
 }
