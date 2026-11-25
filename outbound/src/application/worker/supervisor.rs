@@ -21,7 +21,9 @@ use crate::{
             delivery_worker::{DeliveryAssignment, DeliveryReport, DeliveryWorkerHandle},
             dlq_wokrer::DlqWorker,
             manual_retry_worker::ManualRetryWorker,
-            retry_worker::RetryWorker,
+            retry_worker::{
+                RetryAssignement, RetryReport, RetryWorker, RetryWorkerHandle, RetryWorkerMaster,
+            },
             stream_worker::{StreamAssignment, StreamWorkerHandle, StreamWorkerReport},
             util::sleep_or_cancel,
         },
@@ -35,6 +37,8 @@ const STREAM_REPORT_CHANNEL_CAP: usize = 256;
 const STREAM_WORKER_CHANNEL_CAP: usize = 64;
 const DELIVERY_REPORT_CHANNEL_CAP: usize = 256;
 const DELIVERY_WORKER_CHANNEL_CAP: usize = 64;
+const RETRY_REPORT_CHANNEL_CAP: usize = 256;
+const RETRY_WORKER_CHANNEL_CAP: usize = 64;
 
 pub struct WorkerSupervisor {
     config: Arc<WorkerRuntimeConfig>,
@@ -75,6 +79,8 @@ impl WorkerSupervisor {
             mpsc::channel::<StreamWorkerReport>(STREAM_REPORT_CHANNEL_CAP);
         let (delivery_report_tx, mut delivery_report_rx) =
             mpsc::channel::<DeliveryReport>(DELIVERY_REPORT_CHANNEL_CAP);
+        let (retry_report_tx, retry_report_rx) =
+            mpsc::channel::<RetryReport>(RETRY_REPORT_CHANNEL_CAP);
 
         let mut stream_workers: HashMap<Uuid, StreamWorkerHandle> = HashMap::new();
         let mut assigned_streams: HashSet<String> = HashSet::new();
@@ -88,6 +94,14 @@ impl WorkerSupervisor {
         let mut manual_retry_workers: HashMap<Uuid, ManualRetryWorker> = HashMap::new();
         let mut dlq_workers: HashMap<(Uuid, Uuid), DlqWorker> = HashMap::new();
 
+        let mut retry_worker_master = RetryWorkerMaster {
+            report_tx: retry_report_tx,
+            report_rx: retry_report_rx,
+            workers: HashMap::new(),
+            worker_to_destinations: HashMap::new(),
+            destination_to_worker: HashMap::new(),
+        };
+
         while !self.shutdown_token.is_cancelled() {
             if let Err(err) = self
                 .reconcile_consumer(
@@ -99,9 +113,9 @@ impl WorkerSupervisor {
                     &delivery_report_tx,
                     &mut delivery_report_rx,
                     &mut delivery_workers,
+                    &mut retry_worker_master,
                     &mut assigned_destinations,
                     &mut worker_to_destinations,
-                    &mut retry_workers,
                     &mut dlq_workers,
                     &mut manual_retry_workers,
                 )
@@ -173,9 +187,9 @@ impl WorkerSupervisor {
             delivery_report_tx,
             delivery_report_rx,
             delivery_workers,
+            retry_worker_master,
             assigned_destinations,
             worker_to_destinations,
-            retry_workers,
             dlq_workers,
             manaul_retry_workers,
         ),
@@ -198,9 +212,9 @@ impl WorkerSupervisor {
         delivery_report_tx: &mpsc::Sender<DeliveryReport>,
         delivery_report_rx: &mut mpsc::Receiver<DeliveryReport>,
         delivery_workers: &mut HashMap<Uuid, DeliveryWorkerHandle>,
+        retry_worker_master: &mut RetryWorkerMaster,
         assigned_destinations: &mut HashSet<(Uuid, Uuid)>,
         worker_to_destinations: &mut HashMap<Uuid, HashSet<(Uuid, Uuid)>>,
-        retry_workers: &mut HashMap<(Uuid, Uuid), RetryWorker>,
         dlq_workers: &mut HashMap<(Uuid, Uuid), DlqWorker>,
         manaul_retry_workers: &mut HashMap<Uuid, ManualRetryWorker>,
     ) -> Result<()> {
@@ -461,73 +475,138 @@ impl WorkerSupervisor {
             }
         }
 
-        // 3. reconcile the retry worker
-        let mut destination_key_set = HashSet::<(Uuid, Uuid)>::new();
-
-        for topic in &streams {
-            let resolved = match self
-                .projection_store
-                .resolve_topic_destinations(topic.tenant_id, topic.topic_id)
-                .await
-            {
-                Ok(destinations) => destinations,
-                Err(error) => {
-                    warn!(
-                        tenant_id = %topic.tenant_id,
-                        topic_id = %topic.topic_id,
-                        error = %error,
-                        "Failed to resolve destinations for retry discovery"
+        // 3. Reconcile retry workers (keep idle workers warm; only reap finished handles)
+        while let Ok(report) = retry_worker_master.report_rx.try_recv() {
+            match report {
+                RetryReport::Idle {
+                    worker_id,
+                    idle_passes,
+                } => {
+                    tracing::debug!(
+                        worker_id = %worker_id,
+                        idle_passes = idle_passes,
+                        "Retry worker idle"
                     );
-                    continue;
                 }
-            };
+            }
+        }
 
-            for destination in resolved {
-                if destination.config.status == "active" {
-                    destination_key_set.insert((topic.tenant_id, destination.id));
+        let retired_retry_workers: Vec<Uuid> = retry_worker_master
+            .workers
+            .iter()
+            .filter(|(_, worker)| worker.is_finished())
+            .map(|(id, _)| *id)
+            .collect();
+        for worker_id in retired_retry_workers {
+            if let Some(dests_for_worker) = retry_worker_master
+                .worker_to_destinations
+                .remove(&worker_id)
+            {
+                for dest in dests_for_worker {
+                    retry_worker_master.destination_to_worker.remove(&dest);
+                }
+            }
+            if let Some(worker) = retry_worker_master.workers.remove(&worker_id) {
+                debug!(worker_id = %worker_id, "Retiring finished retry worker");
+                worker.cancel().await;
+            }
+        }
+
+        let removed_destinations: Vec<(Uuid, Uuid)> = retry_worker_master
+            .destination_to_worker
+            .keys()
+            .filter(|dest| !active_destinations.contains(*dest))
+            .copied()
+            .collect();
+        for dest in removed_destinations {
+            if let Some(worker_id) = retry_worker_master.destination_to_worker.remove(&dest) {
+                if let Some(destinations) = retry_worker_master
+                    .worker_to_destinations
+                    .get_mut(&worker_id)
+                {
+                    destinations.remove(&dest);
+                }
+                if let Some(worker_handle) = retry_worker_master.workers.get(&worker_id) {
+                    if worker_handle
+                        .deprecate_tx
+                        .send(super::retry_worker::RetryAssignement {
+                            tenant_id: dest.0,
+                            destination_id: dest.1,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        warn!(
+                            worker_id = %worker_id,
+                            tenant_id = %dest.0,
+                            destination_id = %dest.1,
+                            "Failed to send retry deprecation; worker channel closed"
+                        );
+                    }
                 }
             }
         }
-        let obsolute_retry_wokers: Vec<(Uuid, Uuid)> = retry_workers
-            .iter()
-            .filter(|(key, worker)| !destination_key_set.contains(*key) || worker.is_finished())
-            .map(|(key, _)| key.clone())
-            .collect();
-        for key in obsolute_retry_wokers {
-            if let Some(woker) = retry_workers.remove(&key) {
-                debug!(
-                    tenant_id = %key.0,
-                    destination_id = %key.1,
-                    "Stopping obsolete or finished retry worker"
-                );
-                woker.cancel().await;
-            }
-        }
-        for worker_key in destination_key_set {
+
+        for dest in active_destinations {
             if self.shutdown_token.is_cancelled() {
                 break;
             }
-            if retry_workers.contains_key(&worker_key) {
+            if retry_worker_master
+                .destination_to_worker
+                .contains_key(&dest)
+            {
                 continue;
             }
-            let token = self.shutdown_token.child_token();
-            let id = Uuid::new_v4();
-            let worker = RetryWorker::run(
-                id,
-                worker_key.0,
-                worker_key.1,
-                self.delivery_store.clone(),
-                self.delivery_service.clone(),
-                self.config.retry_worker_config.clone(),
-                token,
-            );
-            debug!(
-                worker_id = %id,
-                tenant_id = %worker_key.0,
-                destination_id = %worker_key.1,
-                "Spawned retry worker"
-            );
-            retry_workers.insert(worker_key, worker);
+
+            let target_worker_id = if let Some((&existing_id, _)) = retry_worker_master
+                .worker_to_destinations
+                .iter()
+                .min_by_key(|(_, set)| set.len())
+            {
+                existing_id
+            } else {
+                let id = Uuid::new_v4();
+                let token = self.shutdown_token.child_token();
+                let handle = RetryWorkerHandle::spawn(
+                    id,
+                    self.delivery_store.clone(),
+                    retry_worker_master.report_tx.clone(),
+                    RETRY_WORKER_CHANNEL_CAP,
+                    token,
+                    self.config.retry_worker_config.clone(),
+                );
+                debug!(worker_id = %id, "Spawned retry worker");
+                retry_worker_master.workers.insert(id, handle);
+                retry_worker_master
+                    .worker_to_destinations
+                    .insert(id, HashSet::new());
+                id
+            };
+
+            let assignment = RetryAssignement {
+                tenant_id: dest.0,
+                destination_id: dest.1,
+            };
+
+            if let Some(worker_handle) = retry_worker_master.workers.get(&target_worker_id) {
+                if worker_handle.add_tx.send(assignment).await.is_ok() {
+                    retry_worker_master
+                        .destination_to_worker
+                        .insert(dest, target_worker_id);
+                    retry_worker_master
+                        .worker_to_destinations
+                        .entry(target_worker_id)
+                        .or_default()
+                        .insert(dest);
+                } else {
+                    warn!(
+                        worker_id = %target_worker_id,
+                        tenant_id = %dest.0,
+                        destination_id = %dest.1,
+                        "Failed to send retry assignment; worker channel closed"
+                    );
+                }
+            }
         }
 
         // 4. reconcile the dlq worker
@@ -619,7 +698,7 @@ impl WorkerSupervisor {
         let span = tracing::Span::current();
         span.record("active_streams", stream_workers.len());
         span.record("active_deliveries", delivery_workers.len());
-        span.record("active_retries", retry_workers.len());
+        span.record("active_retries", retry_worker_master.workers.len());
         span.record("active_dlqs", dlq_workers.len());
         span.record("active_manual_retries", manaul_retry_workers.len());
         Ok(())

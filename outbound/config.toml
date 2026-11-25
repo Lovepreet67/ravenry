@@ -16,9 +16,9 @@ batch_size = 10000
 idle_interval_secs = 5
 
 [worker.retry_worker_config]
-batch_size = 10000
+batch_size = 1000
 worker_count = 2
-poll_interval_millis = 500
+idle_interval_millisecs = 5000
 
 [worker.manual_retry_worker_config]
 consumer_group = "retry-consumer"

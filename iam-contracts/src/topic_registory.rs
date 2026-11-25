@@ -1,7 +1,12 @@
+use std::time::Duration;
+
 use crate::{keys::ACTIVE_TOPIC_STREAMS, streams::topic_events};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use redis::{AsyncCommands, aio::ConnectionManager};
+use redis::{
+    AsyncCommands,
+    aio::{ConnectionManager, ConnectionManagerConfig},
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,11 +34,13 @@ pub struct RedisTopicRegistry {
 impl RedisTopicRegistry {
     pub async fn connect(redis_url: &str) -> Result<Self> {
         let client =
-            redis::Client::open(redis_url).context("invalid Redis URL for topic registry")?;
-
-        let connection = ConnectionManager::new(client)
+            redis::Client::open(redis_url).context("Error while creating the redis client")?;
+        let cfg = ConnectionManagerConfig::new()
+            .set_connection_timeout(Some(Duration::from_secs(5)))
+            .set_response_timeout(Some(Duration::from_secs(10)));
+        let connection = ConnectionManager::new_with_config(client, cfg)
             .await
-            .context("failed to connect to Redis topic registry")?;
+            .context("Error while creating the connection")?;
 
         Ok(Self { connection })
     }

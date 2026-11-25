@@ -1,8 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::{bail, Context};
 use iam_contracts::keys;
-use redis::{aio::ConnectionManager, AsyncCommands};
+use redis::{
+    aio::{ConnectionManager, ConnectionManagerConfig},
+    AsyncCommands,
+};
+use streamforge::QueueError;
 use uuid::Uuid;
 
 use crate::model::{DestinationProjection, ResolvedDestination};
@@ -14,8 +18,14 @@ pub struct ProjectionStore {
 
 impl ProjectionStore {
     pub async fn connect(redis_url: &str) -> anyhow::Result<Self> {
-        let client = redis::Client::open(redis_url)?;
-        let connection = ConnectionManager::new(client).await?;
+        let client =
+            redis::Client::open(redis_url).map_err(|e| QueueError::Connection(e.to_string()))?;
+        let cfg = ConnectionManagerConfig::new()
+            .set_connection_timeout(Some(Duration::from_secs(5)))
+            .set_response_timeout(Some(Duration::from_secs(10)));
+        let connection = ConnectionManager::new_with_config(client, cfg)
+            .await
+            .map_err(|e| QueueError::Connection(e.to_string()))?;
 
         Ok(Self { connection })
     }

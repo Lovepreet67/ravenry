@@ -1,153 +1,134 @@
-use std::{sync::Arc, time::Duration};
-
+use async_trait::async_trait;
+use iam_contracts::{keys, streams};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn, Instrument};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
-    application::{delivery::service::DeliveryService, worker::util::sleep_or_cancel},
+    application::worker::runner::{WorkerChannels, WorkerRunner, WorkerTask},
     config::worker::RetryWorkerConfig,
     platform::redis::DeliveryStore,
 };
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RetryAssignement {
+    pub tenant_id: Uuid,
+    pub destination_id: Uuid,
+}
+
+pub enum RetryReport {
+    Idle { worker_id: Uuid, idle_passes: u32 },
+}
+
 pub struct RetryWorker {
     id: Uuid,
+    delivery_store: Arc<DeliveryStore>,
+    config: Arc<RetryWorkerConfig>,
+    token: CancellationToken,
+}
+
+pub struct RetryWorkerHandle {
+    pub id: Uuid,
+    pub add_tx: mpsc::Sender<RetryAssignement>,
+    pub deprecate_tx: mpsc::Sender<RetryAssignement>,
     token: CancellationToken,
     handle: JoinHandle<()>,
 }
 
-impl RetryWorker {
-    pub fn run(
+impl RetryWorkerHandle {
+    pub fn spawn(
         id: Uuid,
-        tenant_id: Uuid,
-        destination_id: Uuid,
-        store: Arc<DeliveryStore>,
-        delivery_service: Arc<DeliveryService>,
+        delivery_store: Arc<DeliveryStore>,
+        report_tx: mpsc::Sender<RetryReport>,
+        channel_cap: usize,
+        token: CancellationToken,
         config: Arc<RetryWorkerConfig>,
-        shutdown_token: CancellationToken,
     ) -> Self {
-        let token = shutdown_token.clone();
+        let (add_tx, add_rx) = mpsc::channel(channel_cap);
+        let (deprecate_tx, deprecate_rx) = mpsc::channel(channel_cap);
+        let idle_sleep = Duration::from_millis(config.idle_interval_millisecs);
+        let worker = RetryWorker {
+            id,
+            delivery_store,
+            config: config.clone(),
+            token: token.clone(),
+        };
+        let channels = WorkerChannels {
+            add_rx,
+            deprecate_rx,
+            report_tx,
+        };
+        let token_clone = token.clone();
         let handle = tokio::spawn(async move {
-            let poll_interval = Duration::from_millis(config.poll_interval_millis);
-
-            info!(
-                worker_id = %id,
-                tenant_id = %tenant_id,
-                destination_id = %destination_id,
-                "Retry worker started"
-            );
-
-            while !shutdown_token.is_cancelled() {
-                sleep_or_cancel(&shutdown_token, poll_interval).await;
-                if shutdown_token.is_cancelled() {
-                    break;
-                }
-
-                let delivery_ids = match store
-                    .claim_due_retries(tenant_id, destination_id, config.batch_size)
-                    .await
-                {
-                    Ok(ids) => ids,
-                    Err(error) => {
-                        error!(
-                            worker_id = %id,
-                            tenant_id = %tenant_id,
-                            destination_id = %destination_id,
-                            error = %error,
-                            "Failed to discover due retries"
-                        );
-                        continue;
-                    }
-                };
-
-                if delivery_ids.is_empty() {
-                    continue;
-                }
-
-                let batch_span = tracing::info_span!(
-                    "retry.process_batch",
-                    worker_id = %id,
-                    tenant_id = %tenant_id,
-                    destination_id = %destination_id,
-                    batch_len = delivery_ids.len(),
-                );
-
-                async {
-                    for delivery_id in delivery_ids {
-                        if shutdown_token.is_cancelled() {
-                            break;
-                        }
-
-                        let msg_span = tracing::info_span!(
-                            "retry.process_one",
-                            delivery_id = %delivery_id,
-                            outcome = tracing::field::Empty,
-                        );
-
-                        async {
-                            let current_span = tracing::Span::current();
-
-                            let request = match store
-                                .as_ref()
-                                .get_delivery_request(tenant_id, destination_id, delivery_id)
-                                .await
-                            {
-                                Ok(Some(request)) => request,
-                                Ok(None) => {
-                                    current_span.record("outcome", "missing_request");
-                                    warn!("Retry request is missing from Redis");
-                                    return;
-                                }
-                                Err(error) => {
-                                    current_span.record("outcome", "store_error");
-                                    error!(error = %error, "Failed to load retry request");
-                                    return;
-                                }
-                            };
-
-                            match delivery_service.retry_delivery(request).await {
-                                Ok(()) => {
-                                    current_span.record("outcome", "retried");
-                                    debug!("Retry execution completed");
-                                }
-                                Err(error) => {
-                                    current_span.record("outcome", "retry_failed");
-                                    error!(error = %error, "Retry execution failed");
-                                }
-                            }
-                        }
-                        .instrument(msg_span)
-                        .await;
-                    }
-                }
-                .instrument(batch_span)
+            info!(worker_id=%id,"Retry Worker started");
+            WorkerRunner::new(worker, channels, idle_sleep, token_clone)
+                .run()
                 .await;
-            }
-
-            info!(
-                worker_id = %id,
-                tenant_id = %tenant_id,
-                destination_id = %destination_id,
-                "Retry worker stopped"
-            );
+            info!(worker_id=%id,"Retry Worker stopped");
         });
-
-        Self { id, token, handle }
+        Self {
+            id,
+            add_tx,
+            deprecate_tx,
+            token,
+            handle,
+        }
     }
-
     pub fn is_finished(&self) -> bool {
         self.handle.is_finished()
     }
-
     pub async fn cancel(self) {
         self.token.cancel();
         if let Err(err) = self.handle.await {
             warn!(
-                retry_worker = %self.id,
+                worker_id= %self.id,
                 error = %err,
                 "Retry worker join failed"
             );
         }
     }
+}
+
+#[async_trait]
+impl WorkerTask for RetryWorker {
+    type Assignment = RetryAssignement;
+    type Report = RetryReport;
+    async fn step(&mut self, assignement: &Self::Assignment) -> Result<bool, anyhow::Error> {
+        let retry_key = keys::destination_retry(assignement.tenant_id, assignement.destination_id);
+        let delivery_stream_key =
+            streams::destination_deliveries(assignement.tenant_id, assignement.destination_id);
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let moved = self
+            .delivery_store
+            .promote_due_retries(
+                &retry_key,
+                &delivery_stream_key,
+                now_ms,
+                self.config.batch_size,
+            )
+            .await?;
+        Ok(moved > 0)
+    }
+    fn on_idle(&mut self, idle_passes: u32) -> Option<Self::Report> {
+        None
+        // Some(RetryReport::Idle {
+        //     worker_id: self.id,
+        //     idle_passes,
+        // })
+    }
+}
+
+pub struct RetryWorkerMaster {
+    pub report_rx: mpsc::Receiver<RetryReport>,
+    pub report_tx: mpsc::Sender<RetryReport>,
+    pub workers: HashMap<Uuid, RetryWorkerHandle>,
+    pub worker_to_destinations: HashMap<Uuid, HashSet<(Uuid, Uuid)>>,
+    pub destination_to_worker: HashMap<(Uuid, Uuid), Uuid>,
 }

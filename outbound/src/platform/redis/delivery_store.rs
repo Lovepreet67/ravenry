@@ -7,7 +7,11 @@ use iam_contracts::{
     keys::{self, ACTIVE_DESTINATION_STREAMS},
     streams::DELIVERY_RESULTS,
 };
-use redis::{aio::ConnectionManager, AsyncCommands, Pipeline, Script};
+use redis::{
+    aio::{ConnectionManager, ConnectionManagerConfig},
+    AsyncCommands, Pipeline, Script,
+};
+use streamforge::QueueError;
 use tracing::{error, info, instrument};
 use uuid::Uuid;
 
@@ -38,11 +42,14 @@ pub struct DeliveryStore {
 
 impl DeliveryStore {
     pub async fn connect(redis_url: &str) -> anyhow::Result<Self> {
-        let client = redis::Client::open(redis_url).context("failed to create Redis client")?;
-
-        let connection = ConnectionManager::new(client)
+        let client =
+            redis::Client::open(redis_url).map_err(|e| QueueError::Connection(e.to_string()))?;
+        let cfg = ConnectionManagerConfig::new()
+            .set_connection_timeout(Some(Duration::from_secs(5)))
+            .set_response_timeout(Some(Duration::from_secs(10)));
+        let connection = ConnectionManager::new_with_config(client, cfg)
             .await
-            .context("failed to connect to Redis")?;
+            .map_err(|e| QueueError::Connection(e.to_string()))?;
 
         Ok(Self { connection })
     }
@@ -81,6 +88,7 @@ impl DeliveryStore {
     }
 
     /// Atomically promotes due items from `retry_zset_key` into `delivery_stream_key` (`XADD`).
+    #[instrument(skip(self))]
     pub async fn promote_due_retries(
         &self,
         retry_zset_key: &str,

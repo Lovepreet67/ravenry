@@ -159,7 +159,7 @@ impl WorkerTask for StreamWorker {
                     &config.consumer_group,
                     consumer_name.as_str(),
                     config.batch_size,
-                    1000,
+                    20,
                 )
                 .await
             {
@@ -382,9 +382,10 @@ impl WorkerTask for StreamWorker {
     }
 
     fn on_idle(&mut self, idle_passes: u32) -> Option<Self::Report> {
-        Some(StreamWorkerReport::Idle {
-            worker_id: self.id,
-            idle_passes,
-        })
+        return None;
+        // Some(StreamWorkerReport::Idle {
+        //     worker_id: self.id,
+        //     idle_passes,
+        // })
     }
 }

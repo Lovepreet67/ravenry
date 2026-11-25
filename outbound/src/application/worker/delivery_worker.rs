@@ -302,9 +302,10 @@ impl WorkerTask for DeliveryWorker {
     }
 
     fn on_idle(&mut self, idle_passes: u32) -> Option<Self::Report> {
-        Some(DeliveryReport::Idle {
-            worker_id: self.id,
-            idle_passes,
-        })
+        None
+        // Some(DeliveryReport::Idle {
+        //     worker_id: self.id,
+        //     idle_passes,
+        // })
     }
 }

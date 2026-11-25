@@ -17,7 +17,7 @@ impl QueueAdmin for RedisStream {
             .arg("CREATE")
             .arg(destination)
             .arg(group)
-            .arg("$")
+            .arg("0")
             .arg("MKSTREAM")
             .query_async(&mut conn)
             .await;

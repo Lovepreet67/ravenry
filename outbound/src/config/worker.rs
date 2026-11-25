@@ -32,9 +32,7 @@ pub struct DeliveryWorkerConfig {
 pub struct RetryWorkerConfig {
     pub batch_size: usize,
     pub worker_count: usize,
-
-    #[serde(default = "default_retry_poll_interval_millis")]
-    pub poll_interval_millis: u64,
+    pub idle_interval_millisecs: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
