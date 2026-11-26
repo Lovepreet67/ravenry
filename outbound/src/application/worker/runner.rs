@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::TryRecvError};
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 #[async_trait]
 pub trait WorkerTask: Send + 'static {
@@ -21,10 +22,13 @@ pub trait WorkerTask: Send + 'static {
         None
     }
 }
+pub enum WorkerCommand<A> {
+    Add(A),
+    Remove(A),
+}
 
 pub struct WorkerChannels<A, R> {
-    pub add_rx: mpsc::Receiver<A>,
-    pub deprecate_rx: mpsc::Receiver<A>,
+    pub cmd_rx: mpsc::Receiver<WorkerCommand<A>>,
     pub report_tx: mpsc::Sender<R>,
 }
 
@@ -50,53 +54,75 @@ impl<W: WorkerTask> WorkerRunner<W> {
         }
     }
 
+    async fn apply_command(
+        &mut self,
+        command: WorkerCommand<W::Assignment>,
+        assignments: &mut Vec<W::Assignment>,
+        idx: &mut usize,
+    ) {
+        match command {
+            WorkerCommand::Add(assignment) => {
+                if !assignments.contains(&assignment) {
+                    assignments.push(assignment);
+                }
+            }
+            WorkerCommand::Remove(assignment) => {
+                if let Some(pos) = assignments.iter().position(|e| e == &assignment) {
+                    let removed = assignments.remove(pos);
+                    self.worker.on_deprecate(removed).await;
+                    if pos < *idx {
+                        *idx -= 1;
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn run(mut self) {
         let mut assignments: Vec<W::Assignment> = Vec::new();
         let mut idx = 0usize;
         let mut idle_passes = 0u32;
         let mut any_work_this_pass = false;
 
-        loop {
+        'outer: loop {
             if self.token.is_cancelled() {
                 break;
             }
 
-            // 1. Apply pending additions and deprecations non-blockingly
-            while let Ok(item) = self.channels.add_rx.try_recv() {
-                if !assignments.contains(&item) {
-                    assignments.push(item);
-                }
-            }
-            while let Ok(item) = self.channels.deprecate_rx.try_recv() {
-                if let Some(pos) = assignments.iter().position(|existing| existing == &item) {
-                    let removed = assignments.remove(pos);
-                    self.worker.on_deprecate(removed).await;
-                    if pos < idx {
-                        idx = idx.saturating_sub(1);
+            // 1. Drain all pending commands without blocking.
+            loop {
+                match self.channels.cmd_rx.try_recv() {
+                    Ok(command) => {
+                        self.apply_command(command, &mut assignments, &mut idx)
+                            .await
                     }
+                    Err(TryRecvError::Empty) => break,
+                    // Master is gone: nobody can assign or remove anything anymore.
+                    Err(TryRecvError::Disconnected) => break 'outer,
                 }
             }
 
-            // 2. Wait for work or cancellation when no assignments are active
+            // 2. Nothing to do: block until a command arrives or we're cancelled.
             if assignments.is_empty() {
-                tokio::select! {
+                idx = 0;
+                idle_passes = 0;
+                any_work_this_pass = false;
+
+                let command = tokio::select! {
                     _ = self.token.cancelled() => break,
-                    maybe_item = self.channels.add_rx.recv() => {
-                        match maybe_item {
-                            Some(item) => {
-                                assignments.push(item);
-                                idx = 0;
-                                idle_passes = 0;
-                                any_work_this_pass = false;
-                            }
-                            None => break,
-                        }
+                    command = self.channels.cmd_rx.recv() => command,
+                };
+                match command {
+                    Some(command) => {
+                        self.apply_command(command, &mut assignments, &mut idx)
+                            .await
                     }
+                    None => break,
                 }
                 continue;
             }
 
-            // 3. Round-robin one assignment per tick
+            // 3. Round-robin: one assignment per tick.
             if idx >= assignments.len() {
                 idx = 0;
             }
@@ -110,22 +136,35 @@ impl<W: WorkerTask> WorkerRunner<W> {
                     idle_passes = 0;
                 }
                 Ok(false) => {}
-                Err(_) => {}
+                Err(err) => {
+                    // Counts as "no work", so the idle sleep below doubles as backoff.
+                    warn!(error = %format!("{err:#}"), "Worker step failed");
+                }
             }
 
-            // 4. After a full pass over all current assignments, evaluate idleness
+            // 4. After a full pass, decide whether to back off.
             if completed_full_pass {
                 if !any_work_this_pass {
-                    idle_passes += 1;
+                    idle_passes = idle_passes.saturating_add(1);
+
+                    // Reports are advisory: never let a full report channel block the worker.
                     if let Some(report) = self.worker.on_idle(idle_passes) {
-                        tokio::select! {
-                            _ = self.token.cancelled() => break,
-                            _ = self.channels.report_tx.send(report) => {}
-                        }
+                        let _ = self.channels.report_tx.try_send(report);
                     }
-                    tokio::select! {
+
+                    // Sleep, but wake immediately on a command so Add/Remove isn't
+                    // delayed by up to `idle_sleep`.
+                    let command = tokio::select! {
                         _ = self.token.cancelled() => break,
-                        _ = tokio::time::sleep(self.idle_sleep) => {}
+                        _ = tokio::time::sleep(self.idle_sleep) => None,
+                        command = self.channels.cmd_rx.recv() => match command {
+                            Some(command) => Some(command),
+                            None => break,
+                        },
+                    };
+                    if let Some(command) = command {
+                        self.apply_command(command, &mut assignments, &mut idx)
+                            .await;
                     }
                 }
                 any_work_this_pass = false;

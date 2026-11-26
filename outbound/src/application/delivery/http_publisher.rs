@@ -3,7 +3,7 @@ use std::time::Duration;
 use chrono::Utc;
 use iam_contracts::delivery_outcome::DeliveryOutcome;
 use reqwest::Client;
-use tracing::{info, instrument};
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::application::delivery::model::DeliveryRequest;

@@ -1,5 +1,6 @@
 [worker]
 registry_refresh_interval_secs = 30
+shutdown_grace_secs = 60
 
 [worker.stream_worker_config]
 consumer_group = "my-consumer-group"

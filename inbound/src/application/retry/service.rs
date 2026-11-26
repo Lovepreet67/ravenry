@@ -26,6 +26,7 @@ impl RetryService {
         command: RetryCommand,
     ) -> Result<String, RetryError> {
         counter!(names::MANUAL_RETRY_RECEIVED).increment(1);
+        // TODO: we should use the huginn to get the delivery and put them into the queue
         let attempts = self
             .projections
             .assert_delivery_exist(tenant_id, command.destination_id, command.delivery_id)

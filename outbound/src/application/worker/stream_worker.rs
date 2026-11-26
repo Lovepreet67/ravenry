@@ -1,25 +1,30 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
+use super::runner::{WorkerChannels, WorkerCommand, WorkerRunner, WorkerTask};
+use crate::{
+    application::delivery::{model::DeliveryRequest, service::DeliveryService},
+    config::worker::StreamWorkerConfig,
+    platform::{projection_store::ProjectionStore, redis::DeliveryStore},
+};
 use async_trait::async_trait;
 use iam_contracts::{delivery_outcome::EventDestinationError, streams};
+use metrics::gauge;
+use mimir::names::METRIC_ACTIVE_WORKERS;
 use streamforge::{traits::Queue, Message};
+use tokio::time::Instant;
 use tokio::{
-    sync::mpsc,
+    sync::mpsc::{self, error::TrySendError},
     task::{JoinHandle, JoinSet},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, field, info, warn, Instrument, Span};
 use uuid::Uuid;
 
-use crate::{
-    application::delivery::{model::DeliveryRequest, service::DeliveryService},
-    config::worker::StreamWorkerConfig,
-    platform::{projection_store::ProjectionStore, redis::DeliveryStore},
-};
-
-use super::runner::{WorkerChannels, WorkerRunner, WorkerTask};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StreamAssignment {
     pub tenant_id: Uuid,
     pub topic_id: Uuid,
@@ -31,6 +36,16 @@ pub enum StreamWorkerReport {
     Idle { worker_id: Uuid, idle_passes: u32 },
 }
 
+/// Everything a stream worker needs, bundled so the master can spawn workers
+/// without an 8-argument constructor.
+#[derive(Clone)]
+pub struct StreamWorkerDeps {
+    pub queue: Arc<dyn Queue>,
+    pub projections: Arc<ProjectionStore>,
+    pub delivery_store: Arc<DeliveryStore>,
+    pub config: Arc<StreamWorkerConfig>,
+}
+
 pub struct StreamWorker {
     id: Uuid,
     consumer_name: String,
@@ -38,13 +53,11 @@ pub struct StreamWorker {
     projections: Arc<ProjectionStore>,
     delivery_store: Arc<DeliveryStore>,
     config: Arc<StreamWorkerConfig>,
-    token: CancellationToken,
 }
 
 pub struct StreamWorkerHandle {
     pub id: Uuid,
-    pub add_tx: mpsc::Sender<StreamAssignment>,
-    pub deprecate_tx: mpsc::Sender<StreamAssignment>,
+    cmd_tx: mpsc::Sender<WorkerCommand<StreamAssignment>>,
     token: CancellationToken,
     handle: JoinHandle<()>,
 }
@@ -52,37 +65,25 @@ pub struct StreamWorkerHandle {
 impl StreamWorkerHandle {
     pub fn spawn(
         id: Uuid,
-        queue: Arc<dyn Queue>,
-        projections: Arc<ProjectionStore>,
-        delivery_store: Arc<DeliveryStore>,
-        config: Arc<StreamWorkerConfig>,
+        deps: &StreamWorkerDeps,
         report_tx: mpsc::Sender<StreamWorkerReport>,
         channel_cap: usize,
         token: CancellationToken,
     ) -> Self {
-        let (add_tx, add_rx) = mpsc::channel(channel_cap);
-        let (deprecate_tx, deprecate_rx) = mpsc::channel(channel_cap);
-        let idle_sleep = Duration::from_secs(config.idle_interval_secs);
-        let consumer_name = format!("{}_{}", config.consumer_name_prefix, id);
-
+        let (cmd_tx, cmd_rx) = mpsc::channel(channel_cap);
+        let idle_sleep = Duration::from_secs(deps.config.idle_interval_secs);
+        let consumer_name = format!("{}_{}", deps.config.consumer_name_prefix, id);
+        let group = deps.config.consumer_group.clone();
         let worker = StreamWorker {
             id,
             consumer_name: consumer_name.clone(),
-            queue,
-            projections,
-            delivery_store,
-            config: config.clone(),
-            token: token.clone(),
+            queue: deps.queue.clone(),
+            projections: deps.projections.clone(),
+            delivery_store: deps.delivery_store.clone(),
+            config: deps.config.clone(),
         };
-
-        let channels = WorkerChannels {
-            add_rx,
-            deprecate_rx,
-            report_tx,
-        };
-
-        let token_clone = token.clone();
-        let group = config.consumer_group.clone();
+        let channels = WorkerChannels { cmd_rx, report_tx };
+        let task_token = token.clone();
         let handle = tokio::spawn(async move {
             info!(
                 worker_id = %id,
@@ -91,10 +92,9 @@ impl StreamWorkerHandle {
                 "Stream worker started"
             );
 
-            WorkerRunner::new(worker, channels, idle_sleep, token_clone)
+            WorkerRunner::new(worker, channels, idle_sleep, task_token)
                 .run()
                 .await;
-
             info!(
                 worker_id = %id,
                 group = %group,
@@ -105,8 +105,7 @@ impl StreamWorkerHandle {
 
         Self {
             id,
-            add_tx,
-            deprecate_tx,
+            cmd_tx,
             token,
             handle,
         }
@@ -116,15 +115,46 @@ impl StreamWorkerHandle {
         self.handle.is_finished()
     }
 
-    pub async fn cancel(self) {
-        self.token.cancel();
+    /// Awaits a worker that has already finished and logs a panic/cancel error.
+    pub async fn reap(self) {
         if let Err(err) = self.handle.await {
             warn!(
-                stream_worker = %self.id,
+                worker_id = %self.id,
                 error = %err,
                 "Stream worker join failed"
             );
         }
+    }
+
+    /// Gracefully stops this worker before a shared absolute deadline.
+    /// The absolute deadline lets the master apply one shutdown budget to all
+    /// workers instead of spending `timeout` once per worker.
+    pub async fn shutdown_until(self, deadline: Instant) {
+        self.token.cancel();
+        let id = self.id;
+        let mut handle = self.handle;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match tokio::time::timeout(remaining, &mut handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                warn!(worker_id = %id, error = %err, "Stream worker join failed");
+            }
+            Err(_) => {
+                warn!(worker_id = %id, "Stream worker exceeded shutdown deadline; aborting");
+                handle.abort();
+                if let Err(err) = handle.await {
+                    if !err.is_cancelled() {
+                        warn!(worker_id = %id, error = %err, "Stream worker abort join failed");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Convenience wrapper for callers that have a relative timeout.
+    /// Prefer `shutdown_until` when coordinating multiple workers.
+    pub async fn shutdown(self, timeout: Duration) {
+        self.shutdown_until(Instant::now() + timeout).await;
     }
 }
 
@@ -148,12 +178,19 @@ impl WorkerTask for StreamWorker {
 
         let queue = self.queue.clone();
         let projections = self.projections.clone();
+        let delivery_store = self.delivery_store.clone();
         let config = self.config.clone();
-        let token = self.token.clone();
         let consumer_name = self.consumer_name.clone();
-
         async move {
-            let deliveries = match queue
+            // ensure that group exist
+            if let Err(err) = queue
+                .ensure_group(&assignment.stream, &config.consumer_group)
+                .await
+            {
+                error!(err=%err, stream=%&assignment.stream,"Error while creating group");
+                return Ok(false);
+            }
+            let deliveries = queue
                 .consume(
                     &assignment.stream,
                     &config.consumer_group,
@@ -162,19 +199,11 @@ impl WorkerTask for StreamWorker {
                     20,
                 )
                 .await
-            {
-                Ok(deliveries) => deliveries,
-                Err(err) => {
-                    return Err(anyhow::anyhow!("consume failed: {err}"));
-                }
-            };
-
+                .map_err(|err| anyhow::anyhow!("consume failed: {err}"))?;
             Span::current().record("batch_size", deliveries.len());
-
             if deliveries.is_empty() {
                 return Ok(false);
             }
-
             let destinations: Arc<Vec<_>> = match projections
                 .resolve_topic_destinations(assignment.tenant_id, assignment.topic_id)
                 .await
@@ -187,7 +216,6 @@ impl WorkerTask for StreamWorker {
             };
 
             Span::current().record("destinations_resolved", destinations.len());
-
             let destination_id_to_destinations: HashMap<_, _> =
                 destinations.iter().cloned().map(|d| (d.id, d)).collect();
             let mut destination_id_to_deliveries: HashMap<Uuid, Vec<Message>> = HashMap::default();
@@ -195,11 +223,11 @@ impl WorkerTask for StreamWorker {
             let mut destination_id_to_invalid_deliveries: HashMap<Uuid, Vec<Message>> =
                 HashMap::default();
 
+            // NOTE: no cancellation check in this loop on purpose. It is pure CPU
+            // (no awaits), and breaking out early would leave the tail of the batch
+            // unprocessed while `ack_batch` below acks every delivery, which
+            // silently drops those events on shutdown.
             for delivery in &deliveries {
-                if token.is_cancelled() {
-                    break;
-                }
-
                 let event: iam_contracts::events::PublishedEvent =
                     match serde_json::from_slice(&delivery.message.payload) {
                         Ok(event) => event,
@@ -247,7 +275,6 @@ impl WorkerTask for StreamWorker {
                                 destination_id: ed.id,
                                 error: e.to_string(),
                             };
-
                             let message = Message::new(
                                 serde_json::to_vec(&event_destination_error).expect("Can't fail"),
                             );
@@ -267,18 +294,15 @@ impl WorkerTask for StreamWorker {
                         .push(delivery_message);
                 }
             }
+            if !destination_id_to_deliveries.is_empty() {
+                let active: Vec<(Uuid, Uuid)> = destination_id_to_deliveries
+                    .keys()
+                    .map(|destination_id| (assignment.tenant_id, *destination_id))
+                    .collect();
+                delivery_store.mark_destinations_active(&active).await?;
+            }
 
             let mut join_set = JoinSet::new();
-            self.delivery_store
-                .mark_destinations_active(
-                    destination_id_to_deliveries
-                        .iter()
-                        .map(|(destination_id, _)| (assignment.tenant_id, destination_id.clone()))
-                        .collect::<Vec<(Uuid, Uuid)>>()
-                        .as_slice(),
-                )
-                .await?;
-
             for (destination_id, dest_deliveries) in destination_id_to_deliveries {
                 let queue = queue.clone();
                 let tenant_id = assignment.tenant_id;
@@ -329,7 +353,6 @@ impl WorkerTask for StreamWorker {
             }
 
             let mut tasks_failed = 0usize;
-
             while let Some(res) = join_set.join_next().await {
                 match res {
                     Ok(Ok(_)) => {}
@@ -339,18 +362,20 @@ impl WorkerTask for StreamWorker {
                     }
                     Err(join_err) => {
                         tasks_failed += 1;
-                        warn!(error = %join_err, "Event worker task panicked or failed");
+                        warn!(error = %join_err, "Stream publish task panicked or failed");
                     }
                 }
             }
 
             if tasks_failed > 0 {
                 Span::current().record("acked", false);
-                warn!(
-                    failed_tasks = tasks_failed,
-                    "Skipping acknowledgement as some publish tasks failed"
-                );
-                return Ok(true);
+                // Return Err (not Ok(true)) so the runner treats this as a failed
+                // pass and backs off instead of hot-looping on a persistent failure.
+                // The batch stays unacked and is redelivered; deterministic delivery
+                // ids make republishing idempotent downstream.
+                return Err(anyhow::anyhow!(
+                    "{tasks_failed} publish task(s) failed; batch left unacked"
+                ));
             }
 
             match queue
@@ -371,10 +396,9 @@ impl WorkerTask for StreamWorker {
                 }
                 Err(err) => {
                     Span::current().record("acked", false);
-                    warn!(error = %err, "Source event ACK failed");
+                    return Err(anyhow::anyhow!("ack failed: {err}"));
                 }
             }
-
             Ok(true)
         }
         .instrument(batch_span)
@@ -382,10 +406,280 @@ impl WorkerTask for StreamWorker {
     }
 
     fn on_idle(&mut self, idle_passes: u32) -> Option<Self::Report> {
-        return None;
-        // Some(StreamWorkerReport::Idle {
-        //     worker_id: self.id,
-        //     idle_passes,
-        // })
+        Some(StreamWorkerReport::Idle {
+            worker_id: self.id,
+            idle_passes,
+        })
+    }
+}
+
+const STREAM_WORKER_CHANNEL_CAP: usize = 250;
+const STREAM_REPORT_CHANNEL_CAP: usize = 250;
+const MAX_WORKERS: usize = 10;
+const STREAMS_PER_WORKER_SOFT_CAP: usize = 10;
+
+struct WorkerSlot {
+    handle: StreamWorkerHandle,
+    assignments: HashSet<StreamAssignment>,
+}
+
+pub struct StreamWorkerMaster {
+    report_rx: mpsc::Receiver<StreamWorkerReport>,
+    report_tx: mpsc::Sender<StreamWorkerReport>,
+    workers: HashMap<Uuid, WorkerSlot>,
+    assignment_to_worker: HashMap<StreamAssignment, Uuid>,
+    deps: StreamWorkerDeps,
+}
+
+/// Pure placement decision. `live` is (worker_id, current_load) for live workers
+/// only. Returns the worker to use, or `None` if a new one should be spawned.
+fn choose_worker(live: &[(Uuid, usize)]) -> Option<Uuid> {
+    let &(id, load) = live.iter().min_by_key(|(_, load)| *load)?;
+    (load < STREAMS_PER_WORKER_SOFT_CAP || live.len() >= MAX_WORKERS).then_some(id)
+}
+
+impl StreamWorkerMaster {
+    pub fn new(deps: StreamWorkerDeps) -> Self {
+        let (report_tx, report_rx) = mpsc::channel(STREAM_REPORT_CHANNEL_CAP);
+        Self {
+            report_tx,
+            report_rx,
+            workers: HashMap::new(),
+            assignment_to_worker: HashMap::new(),
+            deps,
+        }
+    }
+
+    pub fn worker_len(&self) -> usize {
+        self.workers.len()
+    }
+
+    fn drain_reports(&mut self) {
+        while let Ok(report) = self.report_rx.try_recv() {
+            match report {
+                StreamWorkerReport::Idle {
+                    worker_id,
+                    idle_passes,
+                } => {
+                    debug!(
+                        worker_id = %worker_id,
+                        idle_passes = idle_passes,
+                        "Stream worker idle"
+                    );
+                }
+            }
+        }
+    }
+
+    fn spawn_worker(&mut self, shutdown_token: &CancellationToken) -> Uuid {
+        let id = Uuid::new_v4();
+        let handle = StreamWorkerHandle::spawn(
+            id,
+            &self.deps,
+            self.report_tx.clone(),
+            STREAM_WORKER_CHANNEL_CAP,
+            shutdown_token.child_token(),
+        );
+        debug!(worker_id = %id, "Spawned stream worker");
+        self.workers.insert(
+            id,
+            WorkerSlot {
+                handle,
+                assignments: HashSet::new(),
+            },
+        );
+        id
+    }
+    /// Runs one reconciliation pass. Level-triggered and idempotent: anything
+    /// that can't be done this pass (full channel, dead worker) is retried on
+    /// the next one.
+    pub async fn reconcile(
+        &mut self,
+        active: &HashSet<StreamAssignment>,
+        shutdown_token: &CancellationToken,
+    ) {
+        self.drain_reports();
+        self.reap_finished().await;
+        self.remove_inactive(active);
+        self.assign_unassigned(active, shutdown_token).await;
+        let live = self
+            .workers
+            .values()
+            .filter(|slot| !slot.handle.is_finished())
+            .count();
+        gauge!(METRIC_ACTIVE_WORKERS, mimir::lables::WORKER_TYPE => "stream").set(live as f64);
+    }
+
+    /// Cancels every worker and waits until one shared shutdown deadline.
+    /// All workers are signalled first; then each join consumes only the
+    /// remaining time before the same deadline. Total shutdown time is thus
+    /// bounded by approximately `timeout`, not `worker_count * timeout`.
+    pub async fn shutdown(&mut self, timeout: Duration) {
+        self.shutdown_until(Instant::now() + timeout).await;
+    }
+
+    /// Absolute-deadline variant for services that coordinate shutdown across
+    /// several components.
+    pub async fn shutdown_until(&mut self, deadline: Instant) {
+        let slots: Vec<WorkerSlot> = self.workers.drain().map(|(_, slot)| slot).collect();
+        self.assignment_to_worker.clear();
+        // Signal all workers before awaiting any one of them.
+        for slot in &slots {
+            slot.handle.token.cancel();
+        }
+        for slot in slots {
+            slot.handle.shutdown_until(deadline).await;
+        }
+        gauge!(METRIC_ACTIVE_WORKERS, mimir::lables::WORKER_TYPE => "stream").set(0.0);
+    }
+
+    async fn reap_finished(&mut self) {
+        let finished: Vec<Uuid> = self
+            .workers
+            .iter()
+            .filter(|(_, slot)| slot.handle.is_finished())
+            .map(|(id, _)| *id)
+            .collect();
+
+        for worker_id in finished {
+            if let Some(slot) = self.workers.remove(&worker_id) {
+                for assignment in &slot.assignments {
+                    self.assignment_to_worker.remove(assignment);
+                }
+                debug!(worker_id = %worker_id, "Retiring finished stream worker");
+                slot.handle.reap().await;
+            }
+        }
+    }
+
+    /// Sends `Remove` for assignments that are no longer active. Maps are only
+    /// updated after a successful send, so a full channel just defers removal.
+    fn remove_inactive(&mut self, active: &HashSet<StreamAssignment>) {
+        let stale: Vec<StreamAssignment> = self
+            .assignment_to_worker
+            .keys()
+            .filter(|a| !active.contains(*a))
+            .cloned()
+            .collect();
+
+        for assignment in stale {
+            let Some(&worker_id) = self.assignment_to_worker.get(&assignment) else {
+                continue;
+            };
+            let Some(slot) = self.workers.get_mut(&worker_id) else {
+                self.assignment_to_worker.remove(&assignment);
+                continue;
+            };
+            match slot
+                .handle
+                .cmd_tx
+                .try_send(WorkerCommand::Remove(assignment.clone()))
+            {
+                Ok(()) => {
+                    slot.assignments.remove(&assignment);
+                    self.assignment_to_worker.remove(&assignment);
+                }
+                Err(TrySendError::Full(_)) => {
+                    debug!(
+                        worker_id = %worker_id,
+                        tenant_id = %assignment.tenant_id,
+                        topic_id = %assignment.topic_id,
+                       "Stream worker channel full; deferring removal"
+                    );
+                }
+                Err(TrySendError::Closed(_)) => {
+                    // Worker is gone; reap_finished clears its state next pass.
+                    debug!(worker_id = %worker_id, "Stream worker channel closed during removal");
+                }
+            }
+        }
+    }
+
+    async fn assign_unassigned(
+        &mut self,
+        active: &HashSet<StreamAssignment>,
+        shutdown_token: &CancellationToken,
+    ) {
+        for assignment in active {
+            if shutdown_token.is_cancelled() {
+                break;
+            }
+            if self.assignment_to_worker.contains_key(assignment) {
+                continue;
+            }
+            let live: Vec<(Uuid, usize)> = self
+                .workers
+                .iter()
+                .filter(|(_, slot)| !slot.handle.is_finished())
+                .map(|(id, slot)| (*id, slot.assignments.len()))
+                .collect();
+            let worker_id = match choose_worker(&live) {
+                Some(id) => id,
+                None => self.spawn_worker(shutdown_token),
+            };
+            let Some(slot) = self.workers.get_mut(&worker_id) else {
+                continue;
+            };
+            match slot
+                .handle
+                .cmd_tx
+                .try_send(WorkerCommand::Add(assignment.clone()))
+            {
+                Ok(()) => {
+                    slot.assignments.insert(assignment.clone());
+                    self.assignment_to_worker
+                        .insert(assignment.clone(), worker_id);
+                }
+                Err(TrySendError::Full(_)) => {
+                    debug!(
+                        worker_id = %worker_id,
+                        tenant_id = %assignment.tenant_id,
+                        topic_id = %assignment.topic_id,
+                        "Stream worker channel full; assignment deferred to next pass"
+                    );
+                }
+                Err(TrySendError::Closed(_)) => {
+                    warn!(
+                        worker_id = %worker_id,
+                        tenant_id = %assignment.tenant_id,
+                        topic_id = %assignment.topic_id,
+                        "Failed to send stream assignment; worker channel closed"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn w(load: usize) -> (Uuid, usize) {
+        (Uuid::new_v4(), load)
+    }
+
+    #[test]
+    fn spawns_when_no_workers() {
+        assert_eq!(choose_worker(&[]), None);
+    }
+
+    #[test]
+    fn picks_least_loaded_under_cap() {
+        let a = w(3);
+        let b = w(1);
+        assert_eq!(choose_worker(&[a, b]), Some(b.0));
+    }
+
+    #[test]
+    fn spawns_when_all_full_and_below_max() {
+        let live = vec![w(STREAMS_PER_WORKER_SOFT_CAP); 3];
+        assert_eq!(choose_worker(&live), None);
+    }
+
+    #[test]
+    fn reuses_when_all_full_at_max() {
+        let live = vec![w(STREAMS_PER_WORKER_SOFT_CAP + 5); MAX_WORKERS];
+        assert!(choose_worker(&live).is_some());
     }
 }

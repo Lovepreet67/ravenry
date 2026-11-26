@@ -58,6 +58,7 @@ pub struct DlqWorkerConfig {
 #[derive(Debug, Deserialize)]
 pub struct WorkerConfig {
     pub registry_refresh_interval_secs: u64,
+    pub shutdown_grace_secs: u64,
     pub stream_worker_config: StreamWorkerConfig,
     pub delivery_worker_config: DeliveryWorkerConfig,
     pub dlq_worker_config: DlqWorkerConfig,
@@ -68,7 +69,7 @@ pub struct WorkerConfig {
 #[derive(Debug, Clone)]
 pub struct WorkerRuntimeConfig {
     pub registry_refresh_interval_secs: u64,
-
+    pub shutdown_grace_secs: u64,
     pub stream_worker_config: Arc<StreamWorkerConfig>,
     pub delivery_worker_config: Arc<DeliveryWorkerConfig>,
     pub dlq_worker_config: Arc<DlqWorkerConfig>,
@@ -79,6 +80,7 @@ pub struct WorkerRuntimeConfig {
 impl From<WorkerConfig> for WorkerRuntimeConfig {
     fn from(config: WorkerConfig) -> Self {
         Self {
+            shutdown_grace_secs: config.shutdown_grace_secs,
             registry_refresh_interval_secs: config.registry_refresh_interval_secs,
             stream_worker_config: Arc::new(config.stream_worker_config),
             delivery_worker_config: Arc::new(config.delivery_worker_config),
