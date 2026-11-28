@@ -29,6 +29,6 @@ impl StreamSource for RegistrySource {
             .map_err(|e| Error::Source(e.to_string()))?;
 
         // Stream names come from the shared contract, never built by hand.
-        Ok(active.iter().map(|t| t.destination()).collect())
+        Ok(active.iter().map(|t| t.topic_events()).collect())
     }
 }

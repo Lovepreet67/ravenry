@@ -55,6 +55,26 @@ impl PublishedEvent {
         }
     }
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublishedEventDlq {
+    pub schema_version: u16,
+    pub event_id: Uuid,
+    pub tenant_id: Uuid,
+    pub topic_id: Uuid,
+    pub error: String,
+}
+
+impl PublishedEventDlq {
+    pub fn new(event_id: Uuid, tenant_id: Uuid, topic_id: Uuid, error: String) -> Self {
+        Self {
+            schema_version: 1,
+            event_id,
+            tenant_id,
+            topic_id,
+            error,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryEvent {

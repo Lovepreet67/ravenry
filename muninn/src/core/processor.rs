@@ -10,6 +10,7 @@ use tracing::{debug, error, info, instrument, warn, Instrument};
 use super::inbox::{mark_processed_tx, InboxMessage, InboxStore};
 use super::pipeline::{ProjectError, Projector};
 use super::retry::{RetryDecision, RetryPolicy};
+use crate::core::inbox::postgres::mark_processed_bulk_tx;
 use crate::error::Error;
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,11 @@ impl Default for ProcessorConfig {
 enum Failure {
     Project(ProjectError),
     LeaseLost,
+}
+enum BulkOutcome {
+    Processed,
+    LeaseLost,
+    Failed(ProjectError),
 }
 
 pub struct Processor {
@@ -68,10 +74,11 @@ impl Processor {
         }
     }
 
-    /// Runs until `shutdown` fires. A claimed batch is always finished
-    /// before exiting, so no rows are left leased.
     pub async fn run(self, shutdown: CancellationToken) {
         info!(source = %self.source, worker = %self.worker_id, "processor started");
+
+        let bulk = self.projector.bulk_project_supported().await;
+        info!(source = %self.source, bulk, "projection mode");
 
         while !shutdown.is_cancelled() {
             let batch = match self
@@ -112,11 +119,15 @@ impl Processor {
                 source = %self.source,
                 worker = %self.worker_id,
                 claimed = batch.len(),
+                bulk,
             );
             async {
-                debug!(n = batch.len(), "claimed batch");
-                for msg in &batch {
-                    self.process_one(msg).await;
+                if bulk {
+                    self.process_bulk(&batch).await;
+                } else {
+                    for msg in &batch {
+                        self.process_one(msg).await;
+                    }
                 }
             }
             .instrument(batch_span)
@@ -125,6 +136,116 @@ impl Processor {
 
         info!(source = %self.source, worker = %self.worker_id, "processor stopped");
     }
+
+    /// Fast path: one tx for the whole batch. On any infrastructure error
+    /// the tx is rolled back and we fall back to per-message processing.
+    async fn process_bulk(&self, batch: &[InboxMessage]) {
+        let started = Instant::now();
+
+        let outcomes = match self.run_bulk_tx(batch).await {
+            Ok(o) => o,
+            Err(e) => {
+                warn!(error = %e, n = batch.len(), "bulk path failed, falling back to per-message");
+                counter!(
+                    names::MUNINN_MESSAGES_OUTCOME,
+                    lables::PIPELINE => self.source.clone(),
+                    lables::OUTCOME => "bulk_fallback"
+                )
+                .increment(1);
+                for msg in batch {
+                    self.process_one(msg).await;
+                }
+                return;
+            }
+        };
+
+        // Tx is committed; record per-message outcomes.
+        let per_msg = started.elapsed().as_secs_f64() / batch.len() as f64;
+        for (msg, outcome) in batch.iter().zip(outcomes) {
+            match outcome {
+                BulkOutcome::Processed => {
+                    counter!(
+                        names::MUNINN_MESSAGES_PROCESSED,
+                        lables::PIPELINE => self.source.clone()
+                    )
+                    .increment(1);
+                    counter!(
+                        names::MUNINN_MESSAGES_OUTCOME,
+                        lables::PIPELINE => self.source.clone(),
+                        lables::OUTCOME => "processed"
+                    )
+                    .increment(1);
+                }
+                BulkOutcome::LeaseLost => {
+                    counter!(
+                        names::MUNINN_MESSAGES_OUTCOME,
+                        lables::PIPELINE => self.source.clone(),
+                        lables::OUTCOME => "lease_lost"
+                    )
+                    .increment(1);
+                    warn!(
+                        inbox_id = msg.id,
+                        "lease lost, another worker owns this row"
+                    );
+                }
+                BulkOutcome::Failed(e) => {
+                    let span = tracing::info_span!(
+                        "inbox.bulk_failure",
+                        source = %self.source,
+                        inbox_id = msg.id,
+                        attempts = msg.attempts,
+                        deferrals = msg.deferrals,
+                        outcome = tracing::field::Empty,
+                    );
+                    self.handle_failure(msg, e, &span)
+                        .instrument(span.clone())
+                        .await;
+                }
+            }
+            histogram!(
+                names::MUNINN_MESSAGES_PROCESSING_DURATION,
+                lables::PIPELINE => self.source.clone()
+            )
+            .record(per_msg);
+        }
+    }
+
+    async fn run_bulk_tx(&self, batch: &[InboxMessage]) -> anyhow::Result<Vec<BulkOutcome>> {
+        let mut tx = self.pool.begin().await?;
+
+        let results = self.projector.project_bulk(&mut tx, batch).await?;
+        if results.len() != batch.len() {
+            anyhow::bail!(
+                "project_bulk returned {} results for {} messages",
+                results.len(),
+                batch.len()
+            );
+        }
+
+        // Only rows whose projection succeeded get marked processed.
+        let ok_ids: Vec<i64> = batch
+            .iter()
+            .zip(&results)
+            .filter(|(_, r)| r.is_ok())
+            .map(|(m, _)| m.id)
+            .collect();
+
+        let marked = mark_processed_bulk_tx(&mut tx, &ok_ids).await?;
+
+        let outcomes = batch
+            .iter()
+            .zip(results)
+            .map(|(msg, res)| match res {
+                Ok(()) if marked.contains(&msg.id) => BulkOutcome::Processed,
+                Ok(()) => BulkOutcome::LeaseLost,
+                Err(e) => BulkOutcome::Failed(e),
+            })
+            .collect();
+
+        tx.commit().await?;
+        Ok(outcomes)
+    }
+
     #[instrument(
         skip(self, msg),
         fields(

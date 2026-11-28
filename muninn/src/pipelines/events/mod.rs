@@ -29,7 +29,7 @@ impl Pipeline for EventsPipeline {
     }
 
     fn consumer_group(&self) -> String {
-        "persistence-events".into()
+        "muninn-persistence-group".into()
     }
 
     fn source(&self) -> Arc<dyn StreamSource> {

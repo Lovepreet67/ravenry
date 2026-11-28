@@ -6,7 +6,9 @@ CREATE TABLE events (
     topic_path     TEXT        NOT NULL,
 
     schema_version INTEGER     NOT NULL,
-    payload        JSONB       NOT NULL,
+    payload        JSONB,
+    raw_payload    TEXT,
+    error          TEXT,
 
     received_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

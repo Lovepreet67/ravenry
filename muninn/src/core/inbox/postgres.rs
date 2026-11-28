@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use sqlx::{PgConnection, PgPool};
-
 use super::model::{InboxMessage, NewInboxMessage};
 use super::store::InboxStore;
 use crate::error::{Error, Result};
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use sqlx::{PgConnection, PgPool};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct PgInboxStore {
@@ -229,4 +229,32 @@ pub async fn mark_processed_tx(conn: &mut PgConnection, id: i64) -> Result<()> {
         return Err(Error::LeaseLost(id));
     }
     Ok(())
+}
+
+/// Bulk version of `mark_processed_tx`. Marks every id that is still
+/// `processing` as processed, inside the caller's transaction, and returns
+/// the set of ids that were actually updated.
+///
+/// Ids missing from the returned set had their lease lost (expired and
+/// reclaimed). The caller decides what to do with them; this does not
+/// fail the batch.
+pub async fn mark_processed_bulk_tx(conn: &mut PgConnection, ids: &[i64]) -> Result<HashSet<i64>> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let updated: Vec<i64> = sqlx::query_scalar(
+        r#"
+        UPDATE inbox_messages
+           SET status = 'processed', processed_at = NOW(),
+               locked_by = NULL, locked_until = NULL
+         WHERE id = ANY($1) AND status = 'processing'
+        RETURNING id
+        "#,
+    )
+    .bind(ids)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    Ok(updated.into_iter().collect())
 }

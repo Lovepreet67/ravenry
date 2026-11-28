@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use crate::{keys::ACTIVE_TOPIC_STREAMS, streams::topic_events};
+use crate::{
+    keys::ACTIVE_TOPIC_STREAMS,
+    streams::{topic_events, topic_events_dlq},
+};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use redis::{
@@ -16,8 +19,11 @@ pub struct TopicStream {
 }
 
 impl TopicStream {
-    pub fn destination(&self) -> String {
+    pub fn topic_events(&self) -> String {
         topic_events(self.tenant_id, self.topic_id)
+    }
+    pub fn topic_dlq(&self) -> String {
+        topic_events_dlq(self.tenant_id, self.topic_id)
     }
 }
 

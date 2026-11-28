@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::bail;
 use async_trait::async_trait;
 use sqlx::PgConnection;
 
@@ -58,8 +59,21 @@ impl From<crate::error::Error> for ProjectError {
 /// because a message can be projected twice after a lease expiry.
 #[async_trait]
 pub trait Projector: Send + Sync {
-    async fn project(&self, conn: &mut PgConnection, msg: &InboxMessage)
-        -> Result<(), ProjectError>;
+    async fn project(
+        &self,
+        conn: &mut PgConnection,
+        msg: &InboxMessage,
+    ) -> Result<(), ProjectError>;
+    async fn bulk_project_supported(&self) -> bool {
+        false
+    }
+    async fn project_bulk(
+        &self,
+        _conn: &mut PgConnection,
+        _msgs: &[InboxMessage],
+    ) -> anyhow::Result<Vec<Result<(), ProjectError>>> {
+        bail!("Not Supported");
+    }
 }
 
 /// One workload (events, deliveries, or any future stream sync).

@@ -13,11 +13,6 @@ pub fn topic_events_dlq(tenant_id: Uuid, topic_id: Uuid) -> String {
     return format!("v1:tenant:{tenant_id}:topic:{topic_id}:dlq");
 }
 
-/// Stream for delivery results produced by outbound workers.
-pub const DELIVERY_RESULTS: &str = "v1:delivery-results";
-
-pub const MANUALY_RETRY: &str = "v1:manual-retry";
-
 /// DLQ stream for a specific tenant and destination.
 pub fn destination_dlq(tenant_id: Uuid, destination_id: Uuid) -> String {
     return format!("v1:tenant:{tenant_id}:dest:{destination_id}:dlq");

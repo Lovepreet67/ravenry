@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    str::FromStr,
     sync::Arc,
     time::Duration,
 };
@@ -11,7 +12,7 @@ use crate::{
     platform::{projection_store::ProjectionStore, redis::DeliveryStore},
 };
 use async_trait::async_trait;
-use iam_contracts::{delivery_outcome::EventDestinationError, streams};
+use iam_contracts::{delivery_outcome::EventDestinationError, events::PublishedEventDlq, streams};
 use metrics::gauge;
 use mimir::names::METRIC_ACTIVE_WORKERS;
 use streamforge::{traits::Queue, Message};
@@ -237,7 +238,31 @@ impl WorkerTask for StreamWorker {
                                 error = %err,
                                 "Invalid published event"
                             );
-                            invalid_events.push(delivery.message.clone());
+                            let raw_payload =
+                                match String::from_utf8(delivery.message.payload.to_vec()) {
+                                    Ok(valid_str) => valid_str,
+                                    Err(err) => {
+                                        // Preserves readable text and replaces invalid UTF-8 sequences with
+                                        String::from_utf8_lossy(err.as_bytes()).into_owned()
+                                    }
+                                };
+                            let dlq_bytes = match serde_json::to_vec(&PublishedEventDlq::new(
+                                // SAFETY: ID will always be there as inbound is following this
+                                Uuid::from_str(delivery.message.id.as_ref().expect("Id must be there").as_str()).expect("Never fails"),
+                                Some(raw_payload.clone()),
+                                assignment.tenant_id,
+                                assignment.topic_id,
+                                "Error while deserializing the event".into(),
+                            )) {
+                                Ok(bytes) => bytes,
+                                Err(ser_err) => {
+                                    error!(err=%ser_err,"Error while serelizing the dlq message for event");
+                                    // Fallback: log or send a minimal plain payload without panicking
+                                    continue;
+                                }
+                            };
+                            let msg = Message::new(dlq_bytes);
+                            invalid_events.push(msg);
                             continue;
                         }
                     };
