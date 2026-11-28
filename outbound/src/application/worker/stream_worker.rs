@@ -12,7 +12,9 @@ use crate::{
     platform::{projection_store::ProjectionStore, redis::DeliveryStore},
 };
 use async_trait::async_trait;
-use iam_contracts::{delivery_outcome::EventDestinationError, events::PublishedEventDlq, streams};
+use iam_contracts::{
+    destination_delivery::EventDestinationError, events::PublishedEventDlq, streams,
+};
 use metrics::gauge;
 use mimir::names::METRIC_ACTIVE_WORKERS;
 use streamforge::{traits::Queue, Message};

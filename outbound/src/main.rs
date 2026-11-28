@@ -77,11 +77,7 @@ async fn main() -> Result<()> {
 
     let publisher = Arc::new(HttpPublisher::new().context("failed to initialize HTTP publisher")?);
 
-    let delivery_service = Arc::new(DeliveryService::new(
-        projections.clone(),
-        delivery_store.clone(),
-        publisher.clone(),
-    ));
+    let delivery_service = Arc::new(DeliveryService::new(publisher.clone()));
 
     // ---------------------------------------------------------
 

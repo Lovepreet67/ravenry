@@ -1,30 +1,10 @@
 use std::sync::Arc;
 
-use iam_contracts::delivery_outcome::DeliveryOutcome;
+use iam_contracts::destination_delivery::DeliveryOutcome;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::model::ResolvedDestination;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeliveryStatus {
-    Pending,
-    Processing,
-    RetryScheduled,
-    Succeeded,
-    Failed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AcquireResult {
-    Acquired { attempt: u32 },
-    Busy,
-    Missing,
-    AlreadySucceeded,
-    AlreadyFailed,
-    InvalidState,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompleteAttemptResult {
